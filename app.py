@@ -1,19 +1,17 @@
 import streamlit as st
 import pandas as pd
 
-# Configuración de la página ancha para ordenador
 st.set_page_config(page_title="Buscador Técnico de Operaciones", layout="wide")
 
-# 1. SISTEMA DE SEGURIDAD (Contraseña)
+# 1. SEGURIDAD
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
-
     if not st.session_state.authenticated:
         st.title("🔐 Acceso Red de Dealers")
         password = st.text_input("Introduce la contraseña de acceso:", type="password")
         if st.button("Entrar"):
-            if password == "DealersOJ2026": # Puedes cambiar esta contraseña por la que quieras
+            if password == "DealersOJ2026":
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -22,23 +20,37 @@ def check_password():
     return True
 
 if check_password():
-    # 2. CARGA DEL EXCEL (Lee la pestaña exacta de las horas de trabajo)
+    # 2. CARGA DEL EXCEL
     @st.cache_data
     def load_data():
-        # Aquí le decimos que lea el archivo .xlsx y la pestaña correcta
-        df = pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="new_srv_workhours")
+        df = pd.read_excel("alpha_workhours.xlsx", sheet_name="new_srv_workhours")
         
-        # Filtramos y renombramos las columnas para tus dealers
-        columnas_utiles = {
+        # MAPEO CON TU NUEVA COLUMNA DE NOMBRES INCLUIDA
+        df = df.rename(columns={
             'new_productmodel_idname': 'Modelo',
-            'new_stationname': 'Pieza / Componente',
-            'new_code': 'Código Pieza',
+            'new_product_idname': 'Nombre de la Pieza',  # <-- ¡Aquí está tu columna!
+            'new_code': 'Código de Referencia',
             'new_name': 'Operación Técnica',
             'new_standardhour': 'Tiempo Estándar (UT/Horas)',
             'new_remark': 'Notas / Exclusiones'
-        }
-        df = df[list(columnas_utiles.keys())].rename(columns=columnas_utiles)
-        return df
+        })
+        
+        # Definimos el orden en el que se verán las columnas en la web
+        columnas_finales = [
+            'Modelo', 
+            'Nombre de la Pieza', 
+            'Código de Referencia', 
+            'Operación Técnica', 
+            'Tiempo Estándar (UT/Horas)', 
+            'Notas / Exclusiones'
+        ]
+        
+        # Por si acaso alguna fila no tiene datos, rellenamos los vacíos con texto limpio
+        df = df.fillna("")
+        
+        # Filtramos para mostrar solo las columnas que existan realmente en el Excel
+        columnas_presentes = [col for col in columnas_finales if col in df.columns]
+        return df[columnas_presentes]
 
     try:
         data = load_data()
@@ -47,35 +59,38 @@ if check_password():
         st.write("Consulta piezas, modelos y tiempos asignados directamente desde el DMS.")
         st.markdown("---")
 
-        # 3. INTERFAZ DE BÚSQUEDA TRIPLE
-        col1, col2, col3 = st.columns(3)
+        # 3. INTERFAZ DE BÚSQUEDA TRIPLE (Visualmente más cómodo)
+        col1, col2, col3 = st.columns([1, 1.5, 1.5])
         
         with col1:
             modelos_disponibles = ["Todos"] + list(data['Modelo'].dropna().unique())
             modelo_seleccionado = st.selectbox("1. Filtrar por Modelo:", modelos_disponibles)
             
         with col2:
-            buscar_pieza = st.text_input("2. Buscar por nombre o código de pieza:", "").strip()
+            # Buscador por texto en el Nombre o Código de la pieza
+            buscar_pieza = st.text_input("2. Buscar por Nombre o Código de pieza:", "").strip()
             
         with col3:
-            buscar_operacion = st.text_input("3. Buscar por tipo de operación (ej: Remove):", "").strip()
+            # Buscador por texto en la Operación Técnica
+            buscar_operacion = st.text_input("3. Buscar por tipo de operación (ej: Remove, Paint...):", "").strip()
 
-        # 4. LÓGICA DEL FILTRADO
+        # 4. LÓGICA DE FILTRADO
         df_filtrado = data.copy()
         
         if modelo_seleccionado != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Modelo'] == modelo_seleccionado]
             
         if buscar_pieza:
+            # Busca a la vez tanto en la columna de nombres comerciales como en la de códigos
             df_filtrado = df_filtrado[
-                df_filtrado['Pieza / Componente'].str.contains(buscar_pieza, case=False, na=False) |
-                df_filtrado['Código Pieza'].astype(str).str.contains(buscar_pieza, case=False, na=False)
+                df_filtrado['Nombre de la Pieza'].astype(str).str.contains(buscar_pieza, case=False, na=False) |
+                df_filtrado['Código de Referencia'].astype(str).str.contains(buscar_pieza, case=False, na=False)
             ]
             
         if buscar_operacion:
-            df_filtrado = df_filtrado[df_filtrado['Operación Técnica'].str.contains(buscar_operacion, case=False, na=False)]
+            df_filtrado = df_filtrado[df_filtrado['Operación Técnica'].astype(str).str.contains(buscar_operacion, case=False, na=False)]
 
-        # 5. MOSTRAR RESULTADOS
+        # 5. RESULTADOS
         st.markdown(f"### 📋 Resultados encontrados: {len(df_filtrado)} operaciones")
         
         if not df_filtrado.empty:
@@ -84,4 +99,4 @@ if check_password():
             st.warning("⚠️ No se encontraron operaciones con los criterios seleccionados.")
             
     except Exception as e:
-        st.error(f"Error al cargar la base de datos: {e}")
+        st.error(f"Error al procesar la base de datos: {e}")

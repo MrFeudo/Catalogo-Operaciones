@@ -24,6 +24,7 @@ if check_password():
     @st.cache_data
     def load_data():
         df = pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="new_srv_workhours")
+        df = df[df['new_product_idname'].dropna().astype(str).str.strip() != ""]
         
         # MAPEO CON TU NUEVA COLUMNA DE NOMBRES INCLUIDA
         df = df.rename(columns={

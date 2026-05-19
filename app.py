@@ -86,8 +86,8 @@ if check_password():
                 pass
                 
         with col_titulo:
-            st.title("Buscador de Operaciones y Tiempos de Mano de Obra")
-            st.write("Consulta piezas, modelos y tiempos asignados directamente desde el DMS corporativo.")
+            st.title("Catálogo Operaciones de mano de obra")
+            st.write("Consulta piezas, modelos y tiempos activos en DMS.")
             
         st.markdown("---")
 

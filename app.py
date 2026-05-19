@@ -20,20 +20,23 @@ def check_password():
     return True
 
 if check_password():
-    # 2. CARGA DEL EXCEL
+# 2. CARGA DEL EXCEL
     @st.cache_data
     def load_data():
         df = pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="new_srv_workhours")
-        # Primero eliminamos los valores nulos (NaN) para que no rompa el índice
-        df = df.dropna(subset=['new_product_idname'])
         
-        # Ahora filtramos las celdas que se hayan quedado solo con espacios en blanco
-        df = df[df['new_product_idname'].astype(str).str.strip() != ""]
+        # EXCEPCIÓN: Filtramos para dejar las que tienen nombre de pieza O las que son operaciones universales (999999)
+        # Nota: Convertimos new_stationname a string para que compare bien aunque el Excel lo lea como número o texto
+        condicion_nombre = df['new_product_idname'].dropna().astype(str).str.strip() != ""
+        condicion_universal = df['new_stationname'].astype(str).str.strip() == "999999"
+        
+        # Aplicamos el filtro combinando ambas condiciones con el símbolo "|" (que significa "Ó")
+        df = df[condicion_nombre | condicion_universal]
         
         # MAPEO CON TU NUEVA COLUMNA DE NOMBRES INCLUIDA
         df = df.rename(columns={
             'new_productmodel_idname': 'Modelo',
-            'new_product_idname': 'Nombre de la Pieza',  # <-- ¡Aquí está tu columna!
+            'new_product_idname': 'Nombre de la Pieza',
             'new_code': 'Código de Referencia',
             'new_name': 'Operación Técnica',
             'new_standardhour': 'Tiempo Estándar (UT/Horas)',

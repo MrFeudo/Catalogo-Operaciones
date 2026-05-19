@@ -66,7 +66,8 @@ if check_password():
         st.write("Consulta piezas, modelos y tiempos asignados directamente desde el DMS.")
         st.markdown("---")
 
-        # 3. INTERFAZ DE BÚSQUEDA TRIPLE (Visualmente más cómodo)
+# 3. INTERFAZ DE BÚSQUEDA TRIPLE + NUEVOS FILTROS
+        # Fila 1: Filtros ya existentes
         col1, col2, col3 = st.columns([1, 1.5, 1.5])
         
         with col1:
@@ -74,14 +75,25 @@ if check_password():
             modelo_seleccionado = st.selectbox("1. Filtrar por Modelo:", modelos_disponibles)
             
         with col2:
-            # Buscador por texto en el Nombre o Código de la pieza
             buscar_pieza = st.text_input("2. Buscar por Nombre o Código de pieza:", "").strip()
             
         with col3:
-            # Buscador por texto en la Operación Técnica
             buscar_operacion = st.text_input("3. Buscar por tipo de operación (ej: Remove, Paint...):", "").strip()
 
-       # 4. LÓGICA DE FILTRADO (Corregida y limpia)
+        # Fila 2: ¡AQUÍ ESTÁ LO QUE FALTABA! Creamos los nuevos desplegables para la web
+        col_org, col_est = st.columns(2)
+        
+        with col_org:
+            # Saca los valores únicos de la columna 'Organización' de tu Excel de forma automática
+            org_disponibles = ["Todas"] + list(data['Organización'].dropna().unique())
+            org_seleccionada = st.selectbox("4. Filtrar por Organización:", org_disponibles)
+            
+        with col_est:
+            # Saca los valores únicos de la columna 'Estado' (Active, Inactive, etc.)
+            est_disponibles = ["Todos"] + list(data['Estado'].dropna().unique())
+            est_seleccionado = st.selectbox("5. Filtrar por Estado (Activo/Inactivo):", est_disponibles)
+
+        # 4. LÓGICA DE FILTRADO (Ahora sí, las variables ya existen y funcionan)
         df_filtrado = data.copy()
         
         if modelo_seleccionado != "Todos":
@@ -91,7 +103,7 @@ if check_password():
             df_filtrado = df_filtrado[df_filtrado['Organización'] == org_seleccionada]
             
         if est_seleccionado != "Todos":
-            df_filtrado = df_filtrado[df_filtrado['Estado'] == est_seleccionado] # <-- Corregido aquí
+            df_filtrado = df_filtrado[df_filtrado['Estado'] == est_seleccionado]
 
         if buscar_pieza:
             df_filtrado = df_filtrado[

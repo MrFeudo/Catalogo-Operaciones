@@ -90,18 +90,26 @@ if check_password():
             # Buscador por texto en la Operación Técnica
             buscar_operacion = st.text_input("3. Buscar por tipo de operación (ej: Remove, Paint...):", "").strip()
 
-        # 4. LÓGICA DE FILTRADO
+       # 4. LÓGICA DE FILTRADO (Corregida y limpia)
         df_filtrado = data.copy()
         
         if modelo_seleccionado != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Modelo'] == modelo_seleccionado]
             
+        if org_seleccionada != "Todas":
+            df_filtrado = df_filtrado[df_filtrado['Organización'] == org_seleccionada]
+            
+        if est_seleccionado != "Todos":
+            df_filtrado = df_filtrado[df_filtrado['Estado'] == est_seleccionado] # <-- Corregido aquí
+
         if buscar_pieza:
-            # Busca a la vez tanto en la columna de nombres comerciales como en la de códigos
             df_filtrado = df_filtrado[
                 df_filtrado['Nombre de la Pieza'].astype(str).str.contains(buscar_pieza, case=False, na=False) |
                 df_filtrado['Código de Referencia'].astype(str).str.contains(buscar_pieza, case=False, na=False)
             ]
+            
+        if buscar_operacion:
+            df_filtrado = df_filtrado[df_filtrado['Operación Técnica'].astype(str).str.contains(buscar_operacion, case=False, na=False)]
             
         if buscar_operacion:
             df_filtrado = df_filtrado[df_filtrado['Operación Técnica'].astype(str).str.contains(buscar_operacion, case=False, na=False)]

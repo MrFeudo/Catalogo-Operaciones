@@ -167,7 +167,7 @@ if check_password():
                 'new_name': 'Operación Técnica',
                 'new_standardhour': 'Tiempo Estándar (UT/Horas)',
                 'new_remark': 'Notas / Exclusiones',
-                'organization': 'Mercado / Organización',
+                'Organization': 'Mercado / Organización',
                 'statecodename': 'Estado'
             })
             

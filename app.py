@@ -59,7 +59,7 @@ if check_password():
                 'new_name': 'Operación Técnica',
                 'new_standardhour': 'Tiempo Estándar (UT/Horas)',
                 'new_remark': 'Notas / Exclusiones',
-                'organization': 'Mercado / Organización',  # <-- Corregido aquí
+                'Organization': 'Mercado / Organización',  # <-- Corregido aquí
                 'statecodename': 'Estado'
             })
             

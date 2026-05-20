@@ -38,7 +38,7 @@ def check_password():
 if check_password():
     
     # =========================================================================
-    # PANTALLA 1: TIEMPOS DE TALLER (Tu versión de seguridad exacta)
+    # PANTALLA 1: TIEMPOS DE TALLER (Tu versión exacta de seguridad)
     # =========================================================================
     if opcion_menu == "📋 Tiempos de Taller":
         
@@ -126,74 +126,4 @@ if check_password():
             if buscar_operacion:
                 df_filtrado = df_filtrado[df_filtrado['Operación Técnica'].astype(str).str.contains(buscar_operacion, case=False, na=False)]
 
-            st.markdown(f"### 📋 Resultados encontrados: {len(df_filtrado)} operaciones")
-            if not df_filtrado.empty:
-                st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
-            else:
-                st.warning("⚠️ No se encontraron operaciones con los criterios seleccionados.")
-                
-        except Exception as e:
-            st.error(f"Error al procesar la base de datos de tiempos: {e}")
-
-    # =========================================================================
-    # PANTALLA 2: PRECIOS DE RECAMBIOS (Filtrado Posicional Absoluto Ineludible)
-    # =========================================================================
-    elif opcion_menu == "💰 Precios de Recambios":
-        
-        @st.cache_data(ttl=600)
-        def load_data_prices():
-            # La caché solo lee el almacenamiento físico para ir rápido
-            return pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="Parts price")
-
-        try:
-            # 1. Recuperamos los datos brutos del Excel
-            df_original = load_data_prices().copy()
-            
-            # 2. ESCANEO Y FILTRADO HORIZONTAL (Ignora el nombre técnico de las cabeceras):
-            # Busca la cadena "Spain OJ" celda por celda en todo el documento. Si está, se queda la fila.
-            mascara_spain = df_original.astype(str).apply(lambda x: x.str.strip().str.contains("Spain OJ", case=False, na=False)).any(axis=1)
-            df_solo_spain = df_original[mascara_spain].copy()
-            
-            # 3. Renombramos las columnas sobre la estructura de España limpia
-            df_solo_spain = df_solo_spain.rename(columns={
-                'new_partscode': 'Código de Recambio',
-                'new_product_idname': 'Descripción de la Pieza',
-                'new_price': 'Precio Venta',
-                'transactioncurrencyidname': 'Moneda',
-                'new_pricetypename': 'Tipo de Tarifa',
-                'new_businessunit_idname': 'Mercado / Organización',
-                'statecodename': 'Estado'
-            })
-            
-            # 4. Establecemos el formato definitivo de salida
-            columnas_finales_precios = [
-                'Código de Recambio', 'Descripción de la Pieza', 
-                'Precio Venta', 'Moneda', 'Tipo de Tarifa', 
-                'Mercado / Organización', 'Estado'
-            ]
-            columnas_visibles = [col for col in columnas_finales_precios if col in df_solo_spain.columns]
-            df_preparado = df_solo_spain[columnas_visibles].reset_index(drop=True)
-            
-            # Rellenamos celdas vacías para el renderizado
-            df_preparado = df_preparado.fillna("")
-            df_preparado = df_preparado.replace("nan", "")
-            
-            # --- INTERFAZ GRÁFICA DE PRECIOS ---
-            col_logo, col_titulo = st.columns([1.5, 5])
-            with col_logo:
-                try: st.image("logo_empresa.png", width=220)
-                except Exception: pass
-                    
-            with col_titulo:
-                st.title("Maestro de Tarifas y Precios de Recambios")
-                st.write("Consulta oficializada de precios y tarifas de la red Spain OJ.")
-                
-            st.markdown("---")
-            
-            # Buscador en texto superior
-            buscar_recambio = st.text_input("🔍 Introduce el Código de recambio o la Descripción de la pieza:", "").strip()
-            
-            # 5. Aplicamos la caja de búsqueda sobre el set exclusivo de España
-            if buscar_recambio:
-                df_tabla_final = df_preparado[
-                    df_preparado['Código de Recambio'].astype(str
+            st.markdown(f"### 📋 Resultados encontrados: {len(df_filtrado)}

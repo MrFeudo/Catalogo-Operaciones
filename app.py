@@ -90,7 +90,7 @@ if check_password():
                 
             st.markdown("---")
 
-            # Interfaz de Filtros Tila 1
+            # Interfaz de Filtros Fila 1
             col1, col2, col3 = st.columns([1, 1.5, 1.5])
             with col1:
                 modelos_disponibles = ["Todos"] + list(data['Modelo'].dropna().unique())
@@ -136,7 +136,7 @@ if check_password():
             st.error(f"Error al procesar la base de datos de tiempos: {e}")
 
     # =========================================================================
-    # PANTALLA 2: PRECIOS DE RECAMBIOS (Filtro interno y estricto Spain OJ)
+    # PANTALLA 2: PRECIOS DE RECAMBIOS (Corrección de mapeo y Filtro obligatorio)
     # =========================================================================
     elif opcion_menu == "💰 Precios de Recambios":
         
@@ -144,27 +144,33 @@ if check_password():
         def load_data_prices():
             df = pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="Parts price")
             
-            # 1. FILTRO INTERNO OBLIGATORIO: Forzamos a que solo exista Spain OJ
+            # Aseguramos que la columna de mercado existe y está limpia
             df['new_businessunit_idname'] = df['new_businessunit_idname'].astype(str).str.strip()
+            
+            # FILTRO INTERNO ESTRICTO: Solo guardamos lo que pertenezca a España OJ
             df = df[df['new_businessunit_idname'] == "Spain OJ"].copy()
             
-            # 2. Mapeamos las columnas correctas eliminando ruidos del DMS
+            # Mapeamos incluyendo las columnas requeridas para evitar la rotura de Pandas
             df = df.rename(columns={
                 'new_partscode': 'Código de Recambio',
                 'new_product_idname': 'Descripción de la Pieza',
                 'new_price': 'Precio Venta',
                 'transactioncurrencyidname': 'Moneda',
                 'new_pricetypename': 'Tipo de Tarifa',
+                'new_businessunit_idname': 'Mercado / Organización',
                 'statecodename': 'Estado'
             })
             
             columnas_precios = [
                 'Código de Recambio', 'Descripción de la Pieza', 
-                'Precio Venta', 'Moneda', 'Tipo de Tarifa', 'Estado'
+                'Precio Venta', 'Moneda', 'Tipo de Tarifa', 
+                'Mercado / Organización', 'Estado'
             ]
             
             df = df.fillna("")
             df = df.replace("nan", "")
+            
+            # Verificamos qué columnas pasaron con éxito el mapeo
             columnas_presentes = [col for col in columnas_precios if col in df.columns]
             return df[columnas_presentes].reset_index(drop=True)
         
@@ -178,11 +184,11 @@ if check_password():
                     
             with col_titulo:
                 st.title("Maestro de Tarifas y Precios de Recambios")
-                st.write("Consulta oficializada de precios y tarifas vigentes de la red Spain OJ.")
+                st.write("Consulta oficializada de precios y tarifas de la red Spain OJ.")
                 
             st.markdown("---")
             
-            # Buscador directo e intuitivo: solo el texto de búsqueda, sin menús desplegables
+            # Buscador directo sin selectores molestos
             buscar_recambio = st.text_input("🔍 Introduce el Código de recambio o la Descripción de la pieza:", "").strip()
             
             df_precios = prices_data.copy()
@@ -192,7 +198,7 @@ if check_password():
                     df_precios['Descripción de la Pieza'].astype(str).str.contains(buscar_recambio, case=False)
                 ]
                 
-            st.markdown(f"### 📦 {len(df_precios)} referencias cargadas para España")
+            st.markdown(f"### 📦 {len(df_precios)} referencias precargadas automáticas")
             if not df_precios.empty:
                 st.dataframe(df_precios, use_container_width=True, hide_index=True)
             else:

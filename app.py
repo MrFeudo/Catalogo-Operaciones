@@ -214,4 +214,4 @@ if check_password():
             df_final_precios = prices_data.copy()
             
             if mercado_seleccionado != "Todos":
-                df_final_precios = df_final_precios[df_final_precios['Mercado / Organización'].astype(str).str.strip()
+                df_final_precios = df_final_precios[df_final_precios['Mercado / Organización'].astype(str).str.strip()]

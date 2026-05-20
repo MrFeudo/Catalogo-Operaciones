@@ -148,7 +148,7 @@ if check_password():
             df['new_businessunit_idname'] = df['new_businessunit_idname'].astype(str).str.strip()
             
             # 2. FILTRO INTERNO OBLIGATORIO: Forzamos a que solo se quede con "Spain OJ"
-            df = df[df['new_businessunit_idname'] == "Spain OJ"].copy()
+            df = df[df['new_businessunit_idname'] = "Spain OJ"].copy()
             
             # 3. Mapeamos las columnas REALES que tiene tu pestaña "Parts price"
             df = df.rename(columns={

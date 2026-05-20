@@ -135,21 +135,27 @@ if check_password():
         except Exception as e:
             st.error(f"Error al procesar la base de datos de tiempos: {e}")
 
-# =========================================================================
-    # PANTALLA 2: PRECIOS DE RECAMBIOS (Filtro Blindado Post-Carga)
+    # =========================================================================
+    # PANTALLA 2: PRECIOS DE RECAMBIOS (Filtrado Posicional Absoluto Ineludible)
     # =========================================================================
     elif opcion_menu == "💰 Precios de Recambios":
         
         @st.cache_data(ttl=600)
         def load_data_prices():
+            # La caché solo lee el almacenamiento físico para ir rápido
             return pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="Parts price")
 
         try:
-            # 1. Carga inicial del Excel original
-            df_base = load_data_prices().copy()
+            # 1. Recuperamos los datos brutos del Excel
+            df_original = load_data_prices().copy()
             
-            # 2. Renombrado inmediato de las columnas físicas para poder trabajar
-            df_base = df_base.rename(columns={
+            # 2. ESCANEO Y FILTRADO HORIZONTAL (Ignora el nombre técnico de las cabeceras):
+            # Busca la cadena "Spain OJ" celda por celda en todo el documento. Si está, se queda la fila.
+            mascara_spain = df_original.astype(str).apply(lambda x: x.str.strip().str.contains("Spain OJ", case=False, na=False)).any(axis=1)
+            df_solo_spain = df_original[mascara_spain].copy()
+            
+            # 3. Renombramos las columnas sobre la estructura de España limpia
+            df_solo_spain = df_solo_spain.rename(columns={
                 'new_partscode': 'Código de Recambio',
                 'new_product_idname': 'Descripción de la Pieza',
                 'new_price': 'Precio Venta',
@@ -159,12 +165,7 @@ if check_password():
                 'statecodename': 'Estado'
             })
             
-            # 3. FILTRO RADICAL: Forzamos a Pandas a limpiar y quedarse SOLO con España
-            # Convertimos la columna a texto, quitamos espacios y usamos una máscara booleana estricta
-            df_base['Mercado / Organización'] = df_base['Mercado / Organización'].astype(str).str.strip()
-            df_solo_spain = df_base[df_base['Mercado / Organización'] == "Spain OJ"].copy()
-            
-            # 4. Seleccionamos las columnas de salida finales
+            # 4. Establecemos el formato definitivo de salida
             columnas_finales_precios = [
                 'Código de Recambio', 'Descripción de la Pieza', 
                 'Precio Venta', 'Moneda', 'Tipo de Tarifa', 
@@ -172,6 +173,10 @@ if check_password():
             ]
             columnas_visibles = [col for col in columnas_finales_precios if col in df_solo_spain.columns]
             df_preparado = df_solo_spain[columnas_visibles].reset_index(drop=True)
+            
+            # Rellenamos celdas vacías para el renderizado
+            df_preparado = df_preparado.fillna("")
+            df_preparado = df_preparado.replace("nan", "")
             
             # --- INTERFAZ GRÁFICA DE PRECIOS ---
             col_logo, col_titulo = st.columns([1.5, 5])
@@ -185,21 +190,10 @@ if check_password():
                 
             st.markdown("---")
             
-            # Buscador de texto manual
+            # Buscador en texto superior
             buscar_recambio = st.text_input("🔍 Introduce el Código de recambio o la Descripción de la pieza:", "").strip()
             
-            # 5. La búsqueda se aplica obligatoriamente sobre el set exclusivo de España
+            # 5. Aplicamos la caja de búsqueda sobre el set exclusivo de España
             if buscar_recambio:
                 df_tabla_final = df_preparado[
-                    df_preparado['Código de Recambio'].astype(str).str.contains(buscar_recambio, case=False) |
-                    df_preparado['Descripción de la Pieza'].astype(str).str.contains(buscar_recambio, case=False)
-                ].copy()
-            else:
-                df_tabla_final = df_preparado.copy()
-
-            # 6. Forzamos a Streamlit a renderizar ÚNICAMENTE 'df_tabla_final'
-            st.markdown(f"### 📦 {len(df_tabla_final)} referencias localizadas para España")
-            st.dataframe(df_tabla_final, use_container_width=True, hide_index=True)
-                
-        except Exception as e:
-            st.error(f"Error al procesar el maestro de precios: {e}")
+                    df_preparado['Código de Recambio'].astype(str

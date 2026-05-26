@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="Buscador Técnico OMODA & JAECOO", layout="wide")
-
+URL_DATA = "https://ceoeu.sharepoint.com/sites/PostventaOJEspaa/_layouts/15/Doc.aspx?sourcedoc={bfe52db7-15ab-4f6b-8e6f-91038e195048}&action=download"
 # =========================================================================
 # DICCIONARIO DE TRADUCCIÓN (Internacionalización - i18n para TFM)
 # =========================================================================
@@ -156,7 +156,7 @@ if check_password():
         
         @st.cache_data
         def load_data_tiempos_v3():
-            df = pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="new_srv_workhours")
+            df = pd.read_excel(URL_DATA, sheet_name="new_srv_workhours")
             df.columns = df.columns.astype(str).str.strip()
             
             # Mapeamos usando "organization" que es el nombre real en esta pestaña
@@ -263,7 +263,7 @@ if check_password():
         
         @st.cache_data
         def load_prices_nueva_version():
-            df = pd.read_excel("DMS_Active_Spare_Parts.xlsx", sheet_name="Parts price")
+            df = pd.read_excel(URL_DATA, sheet_name="Parts price")
             df.columns = df.columns.astype(str).str.strip()
             
             # Mapeamos usando "new_businessunit_idname" que corresponde a esta hoja

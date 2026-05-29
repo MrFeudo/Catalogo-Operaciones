@@ -351,5 +351,5 @@ try:
             else:
                 st.warning(txt["warn_precios"])
                 
-        except Exception as e:
-            st.error(txt["err_precios"].format(e))
+            except Exception as e:
+                st.error(txt["err_precios"].format(e))

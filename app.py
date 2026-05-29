@@ -268,6 +268,7 @@ if check_password():
             
             # Mapeamos usando "new_businessunit_idname" que corresponde a esta hoja
             df = df.rename(columns={
+                'Model': 'Modelo',  # <--- NUEVA COLUMNA QUE HAS AÑADIDO
                 'new_partscode': 'Código de Recambio',
                 'new_product_idname': 'Descripción de la Pieza',
                 'new_price': 'Precio Venta',
@@ -278,7 +279,7 @@ if check_password():
             })
             
             columnas_finales_precios = [
-                'Código de Recambio', 'Descripción de la Pieza', 
+                'Modelo','Código de Recambio', 'Descripción de la Pieza', 
                 'Precio Venta', 'Moneda', 'Tipo de Tarifa', 
                 'Mercado / Organización', 'Estado'
             ]
@@ -289,7 +290,7 @@ if check_password():
             columnas_visibles = [col for col in columnas_finales_precios if col in df.columns]
             return df[columnas_visibles].reset_index(drop=True)
 
-        try:
+try:
             prices_data = load_prices_nueva_version()
             
             st.title(txt["precios_titulo"])
@@ -297,7 +298,8 @@ if check_password():
             st.markdown("---")
             
             # --- FILTROS DE PRECIOS ---
-            col_busc, col_org_p, col_tar = st.columns([2, 1, 1])
+            # Pasamos a 4 columnas modificando las proporciones a [2, 1, 1, 1]
+            col_busc, col_org_p, col_tar, col_mod = st.columns([2, 1, 1, 1])
             
             with col_busc:
                 buscar_recambio = st.text_input(txt["f_buscar_recambio"], "").strip()
@@ -311,15 +313,25 @@ if check_password():
                         indice_defecto = idx
                         break
                         
-                mercado_seleccionado = st.selectbox(txt["f_mercado_precios"], mercados_disponibles, index=indice_defecto)
+                market_name = txt["f_mercado_precios"] if "f_mercado_precios" in txt else txt.get("f_mercado", "Mercado")
+                mercado_seleccionado = st.selectbox(market_name, mercados_disponibles, index=indice_defecto)
                 
             with col_tar:
                 tarifas_disponibles = [txt["todas"]] + [str(t).strip() for t in prices_data['Tipo de Tarifa'].unique() if str(t).strip() != ""]
                 tarifa_seleccionada = st.selectbox(txt["f_tarifa"], tarifas_disponibles)
 
+            # NUEVO: Añadimos el componente visual en la cuarta columna
+            with col_mod:
+                modelos_disponibles = [txt["todos"]] + [str(mo).strip() for mo in prices_data['Modelo'].unique() if str(mo).strip() != ""]
+                modelo_seleccionado = st.selectbox(txt["filtro_modelo"], modelos_disponibles)
+
             # --- LÓGICA DE FILTRADO ---
             df_final_precios = prices_data.copy()
-            
+
+            # NUEVO: Aplicamos el filtrado por Modelo
+            if modelo_seleccionado != txt["todos"]:
+                df_final_precios = df_final_precios[df_final_precios['Modelo'].astype(str).str.strip() == modelo_seleccionado]
+                
             if mercado_seleccionado != txt["todos"]:
                 df_final_precios = df_final_precios[df_final_precios['Mercado / Organización'].astype(str).str.strip() == mercado_seleccionado]
                 

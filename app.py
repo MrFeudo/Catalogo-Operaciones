@@ -868,22 +868,6 @@ if check_password():
                 'Organization': 'Mercado / Organización',
                 'statecodename': 'Estado'
             })
-
-            @st.cache_data
-        def load_data_tiempos_v3():
-            df = pd.read_excel(URL_GITHUB_EXCEL, sheet_name="new_srv_workhours")
-            df.columns = df.columns.astype(str).str.strip()
-            
-            df = df.rename(columns={
-                'new_productmodel_idname': 'Modelo',
-                'new_product_idname': 'Nombre de la Pieza',
-                'new_code': 'Código de Referencia',
-                'new_name': 'Operación Técnica',
-                'new_standardhour': 'Tiempo Estándar (UT/Horas)',
-                'new_remark': 'Notas / Exclusiones',
-                'Organization': 'Mercado / Organización',
-                'statecodename': 'Estado'
-            })
             
             # 🧹 LIMPIEZA DEL ERROR BINARIO (0x2a / asteriscos basura):
             if 'Mercado / Organización' in df.columns:

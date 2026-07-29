@@ -27,7 +27,7 @@ if "idioma" not in st.session_state:
     st.session_state.idioma = "Español"
 
 # URL Directa (Raw) al archivo Excel en GitHub
-URL_GITHUB_EXCEL = "https://github.com/MrFeudo/Catalogo-Operaciones/raw/0d67464a70c2267e0f58aabe31f4530976f1aae8/DMS_Active_Spare_Parts.xlsx"
+URL_GITHUB_EXCEL = "https://github.com/MrFeudo/Catalogo-Operaciones/raw/main/DMS_Active_Spare_Parts.xlsb"
 
 # =========================================================================
 # 2. DICCIONARIO DE TRADUCCIÓN (Internacionalización - i18n para TFM)

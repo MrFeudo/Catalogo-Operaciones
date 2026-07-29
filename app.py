@@ -950,7 +950,12 @@ if check_password():
                 ]
     
                 # 3. Filtramos: Nos quedamos con los oficiales + cualquier variante de LEPAS que venga en el Excel
-                modelos_filtrados = [m for m in modelos_raw if m in modelos_oficiales or "LEPAS" in m.upper()]
+                
+                modelos_filtrados = [
+                    m for m in modelos_raw 
+                    if any(marca in m.upper() for marca in ["OMODA", "JAECOO", "LEPAS L8 PHEV"])
+                ]
+
     
                 # 4. Creamos la lista final con el botón "Todos" de tu diccionario de idiomas
                 modelos_disponibles = [txt["todos"]] + sorted(list(set(modelos_filtrados)))

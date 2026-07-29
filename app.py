@@ -1037,40 +1037,14 @@ if check_password():
     # PANTALLA 3: SOLICITUD DE OPERACIONES ADICIONALES (CONEXIÓN GOOGLE SHEETS)
     # =========================================================================
     elif opcion_menu == txt["menu_solicitar"]:
+        import re
+        import datetime
+        import time
+
         st.title(txt["solicitar_titulo"])
         st.write(txt["solicitar_sub"])
         st.markdown("---")
 
-        LISTA_DEALERS = sorted([
-            "ACAI MOTOR MÁLAGA", "ALIFAVISA BILBAO", "ALIMOTOR ELCHE", "ANFERPA SEGOVIA", 
-            "AUTO YALDE LOGROÑO", "AUTOCAM MOTOR VILAFRANCA", "AUTOCYL PALENCIA", "AUTOCYL VALLADOLID", 
-            "AUTOTERMINAL", "AUTOVIDAL PALMA DE MALLORCA", "AXIS MOTORS", "BLENDIO LAREDO", 
-            "BLENDIO LUGO", "BLENDIO OURENSE", "BLENDIO SANTANDER", "BLENDIO TORRELAVEGA", 
-            "BORJAMOTOR ALICANTE", "CERVERA AVILA", "CERVERA SALAMANCA", "CHINARES GUADALAJARA", 
-            "DUMOSA BENAVENTE", "ESLAUTO LEON", "GRUP BASOLS IGUALADA", "GRUPO JULIAN BURGOS", 
-            "GRUPO NIETO MÁLAGA", "GRUPO NIETO MARBELLA", "HIMASA SEDAVÍ", "JEMOYA SORIA", 
-            "LASACAR MIRANDA DE EBRO", "LASACAR VITORIA", "M TECNIK ALCALÁ DE HENARES", 
-            "M TECNIK BARCELONA MAQUINIST", "M TECNIK CASTELLÓN", "M TECNIK GERONA", 
-            "M TECNIK MATARÓ", "M TECNIK VINAROZ", "MARTIN LIZAGA", "MARTIN LIZAGA TERUEL", 
-            "MAS AUTO LEGANÉS", "MAVEN BADAJOZ", "MAVEN CÁCERES", "MOLL MOTOR DENIA", 
-            "MOLL MOTOR GANDIA", "MONECAR AUTOMOCION", "MONECAR CUENCA", "MOTOR NACIENTE", 
-            "MOVINSUR GRANADA", "MOVINSUR JAÉN", "MOVINSUR MOTRIL", "MY CARS CÓRDOBA", 
-            "NOATUM", "NOVACAR BCN SANT BOI", "PALAUSA ZAMORA", "PRUNA CAR GO GRANOLLERS", 
-            "PROCHERY ALBACETE", "PROCHERY CARTAGENA", "PROCHERY MURCIA", "RAFAEL AFONSO AGUIMES", 
-            "RAFAEL AFONSO LANZAROTE", "RAFAEL AFONSO LAS PALMAS", "RAFAEL AFONSO TENERIFE", 
-            "RESNOVA MOTOR CORUÑA", "RESNOVA MOTOR GIJÓN", "RESNOVA MOTOR NARÓN", 
-            "RESNOVA MOTOR OVIEDO", "RESNOVA MOTOR SANTIAGO", "RESNOVA MOTOR VIGO", 
-            "SEGRE MOTORS LERIDA", "SERTECAUTO PONFERRADA", "SYRSA ALGECIRAS", 
-            "SYRSA ALMERIA", "SYRSA EJIDO", "SYRSA HUELVA", "SYRSA SEVILLA", 
-            "TALAUTO CAZALEGAS", "TALAUTO TOLEDO", "TALLERES CHINARES", "TECNOTARRACO TARRAGONA", 
-            "TERRY MOBILITY JERÉZ", "TRADECAR GAMBOA ALCORCÓN", "TRADECAR GAMBOA MADRID", 
-            "TRADECAR GAMBOA MAJADAHON", "TRADECAR GAMBOA RIVAS", "TUMASA HUESCA", 
-            "TUMASA MONZÓN", "UNIONE ALCAZAR DE SAN JUAN", "UNIONE CIUDAD REAL", 
-            "VALLESCAR SABADELL", "VALLESCAR TERRASSA", "VIAN AUTOMOBILE VILLALBA", 
-            "ZEN MOTOR OLABERRIA", "ZEN MOTOR PAMPLONA", "ZEN MOTOR SAN SEBASTIÁN", 
-            "ZEN MOTOR ZARAGOZA"
-        ])
-        
         MAPEO_MODELOS = {
             "OMODA 5 (Gasolina)": "T19C", "OMODA 5 HEV (Híbrido)": "T19C HEV", "OMODA 5 EV (Eléctrico)": "T19C EV",
             "OMODA 7 PHEV": "T1GC PHEV", "OMODA 9 PHEV": "T22 PHEV", "JAECOO 5 (Gasolina)": "T13J",
@@ -1085,12 +1059,18 @@ if check_password():
             modelos_filtrados = [mod for mod in MAPEO_MODELOS.keys() if mod.upper().startswith(marca.upper())]
             modelo_comercial = st.selectbox(txt["form_modelo"], modelos_filtrados)
         with col2:
-            dealer = st.selectbox(txt["form_dealer"], LISTA_DEALERS)
             codigo_producto_auto = MAPEO_MODELOS[modelo_comercial]
             st.text_input(txt["form_hq_code"], value=codigo_producto_auto, disabled=True)
-        
+
         # Formulario estructurado
         with st.form("hq_operation_form", clear_on_submit=True):
+            # Campo para el Número de Garantía (Manual)
+            numero_garantia = st.text_input(
+                "Nº de Garantía:",
+                placeholder="Ej: CO202607290001",
+                help="Formato requerido: COYYYYMMDDXXXX (Ej: CO + Año + Mes + Día + 4 caracteres/números)"
+            ).strip().upper()
+
             c1, c2 = st.columns(2)
             with c1:
                 vin = st.text_input(txt["form_vin"], max_chars=17, placeholder=txt["form_vin_holder"]).strip().upper()
@@ -1101,10 +1081,15 @@ if check_password():
             boton_enviar = st.form_submit_button(txt["form_btn"])
             
             if boton_enviar:
-                if not vin or not operacion_solicitada:
+                # Patrón Regex: 'CO' + 8 dígitos de fecha (YYYYMMDD) + 4 alfanuméricos (XXXX)
+                patron_garantia = r"^CO\d{8}[A-Z0-9]{4}$"
+
+                if not numero_garantia or not vin or not operacion_solicitada:
                     st.error(txt["err_campos"])
+                elif not re.match(patron_garantia, numero_garantia):
+                    st.error("❌ **Error en el Número de Garantía:** Debe cumplir el patrón **COYYYYMMDDXXXX** (Ej: `CO202607290001`).")
                 elif len(vin) != 17:
-                    st.error("❌ Error: El número de bastidor (VIN) debe tener exactamente 17 caracteres.")
+                    st.error("❌ **Error en el VIN:** El número de bastidor debe tener exactamente 17 caracteres.")
                 else:
                     ahora = datetime.datetime.now()
                     columnas_orden = [
@@ -1141,11 +1126,11 @@ if check_password():
                         df_cloud = pd.DataFrame(columns=columnas_orden)
                         spreadsheet_url = ""
                     
-                    # 2. Estructurar la nueva fila
+                    # 2. Estructurar la nueva fila (almacenando el nº de garantía en DEALER y Respondents)
                     nueva_solicitud = {
                         "SN": int(nuevo_sn),
                         "Submitted on": str(ahora.strftime("%Y-%m-%d %H:%M:%S")),
-                        "Respondents": str(f"Dealer App ({dealer})"),
+                        "Respondents": str(f"Garantía: {numero_garantia}"),
                         "Fecha del día": str(ahora.strftime("%Y-%m-%d")),
                         "Marca del vehículo": str(marca),
                         "INTRODUCIR MODELO": str(modelo_comercial),
@@ -1154,7 +1139,7 @@ if check_password():
                         "CÓDIGO DE PRODUCTO": str(codigo_producto_auto),
                         "REFERENCIA DE PIEZA": str(referencia) if referencia else "NaN",
                         "OPERACIÓN QUE SE SOLICITA AÑADIR": str(operacion_solicitada),
-                        "DEALER": str(dealer)
+                        "DEALER": str(numero_garantia)
                     }
                     
                     # 3. Intentar subir los datos a Google Sheets
@@ -1180,11 +1165,10 @@ if check_password():
                         st.info("💡 Por seguridad, hemos guardado esta línea en la tabla inferior (Caché Local).")
                         st.session_state.lista_solicitudes.append(nueva_solicitud)
 
-                        if subida_exitosa:
-                            st.success("✅ **Operación registrada con éxito.** La solicitud ha sido transmitida al departamento de Garantías de Central para su validación.")
-                            import time
-                            time.sleep(1.5)
-                            st.rerun()
+                    if subida_exitosa:
+                        st.success("✅ **Operación registrada con éxito.** La solicitud ha sido transmitida al departamento de Garantías de Central para su validación.")
+                        time.sleep(1.5)
+                        st.rerun()
                         
 # =========================================================================
     # PANTALLA 4: CONSULTORIO IA DE GARANTÍAS (VERSION DEFINITIVA)

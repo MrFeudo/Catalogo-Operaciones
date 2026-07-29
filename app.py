@@ -868,6 +868,42 @@ if check_password():
                 'Organization': 'Mercado / Organización',
                 'statecodename': 'Estado'
             })
+
+            @st.cache_data
+        def load_data_tiempos_v3():
+            df = pd.read_excel(URL_GITHUB_EXCEL, sheet_name="new_srv_workhours")
+            df.columns = df.columns.astype(str).str.strip()
+            
+            df = df.rename(columns={
+                'new_productmodel_idname': 'Modelo',
+                'new_product_idname': 'Nombre de la Pieza',
+                'new_code': 'Código de Referencia',
+                'new_name': 'Operación Técnica',
+                'new_standardhour': 'Tiempo Estándar (UT/Horas)',
+                'new_remark': 'Notas / Exclusiones',
+                'Organization': 'Mercado / Organización',
+                'statecodename': 'Estado'
+            })
+            
+            # 🧹 LIMPIEZA DEL ERROR BINARIO (0x2a / asteriscos basura):
+            if 'Mercado / Organización' in df.columns:
+                df['Mercado / Organización'] = df['Mercado / Organización'].astype(str)
+                # Reemplaza cualquier '0x2a' u otro código hexadecimal por 'Todos'
+                df['Mercado / Organización'] = df['Mercado / Organización'].replace(
+                    to_replace=r'^0x.*$', value='Todos', regex=True
+                )
+            
+            columnas_finales = [
+                'Modelo', 'Nombre de la Pieza', 'Código de Referencia', 
+                'Operación Técnica', 'Tiempo Estándar (UT/Horas)', 'Notas / Exclusiones',
+                'Mercado / Organización', 'Estado'
+            ]
+            
+            df = df.fillna("")
+            df = df.replace(["nan", "None"], "")
+            
+            columnas_presentes = [col for col in columnas_finales if col in df.columns]
+            return df[columnas_presentes].reset_index(drop=True)
             
             columnas_finales = [
                 'Modelo', 'Nombre de la Pieza', 'Código de Referencia', 

@@ -939,7 +939,23 @@ if check_password():
             
             col1, col2, col3 = st.columns([1, 1.5, 1.5])
             with col1:
-                modelos_disponibles = [txt["todos"]] + list(data['Modelo'].dropna().unique())
+                # 1. Extraemos todos los modelos reales en texto limpio
+                modelos_raw = [str(m).strip() for m in data['Modelo'].dropna().unique()]
+    
+                # 2. Lista blanca oficial para limpiar la paja del Excel
+                modelos_oficiales = [
+                       "JAECOO 7 PHEV", "JAECOO 8 PHEV", 
+                       "OMODA 5", "OMODA 5 EV", "OMODA 5 HEV", 
+                       "OMODA 7 PHEV", "OMODA 9 PHEV"
+                ]
+    
+                # 3. Filtramos: Nos quedamos con los oficiales + cualquier variante de LEPAS que venga en el Excel
+                modelos_filtrados = [m for m in modelos_raw if m in modelos_oficiales or "LEPAS" in m.upper()]
+    
+                # 4. Creamos la lista final con el botón "Todos" de tu diccionario de idiomas
+                modelos_disponibles = [txt["todos"]] + sorted(list(set(modelos_filtrados)))
+    
+                # 5. Tu selectbox actual
                 modelo_seleccionado = st.selectbox(txt["f_modelo"], modelos_disponibles)
             with col2:
                 buscar_pieza = st.text_input(txt["f_pieza"], "").strip()

@@ -61,6 +61,8 @@ DEFAULT_SESSION_VALUES = {
     "claim_val": "",
     "final_comment_area": "",
     "last_saved_comment": "",
+    "pending_clear_comment_area": False,
+    "pending_clear_selection": False,
     "confirm_missing_claim": False,
     "tokens_totales_input": 0,
     "tokens_totales_output": 0,
@@ -1220,6 +1222,21 @@ def render_generador_comentarios():
     ordered_keys = [key for key in COMMENTS if key in st.session_state.selected_keys]
     base_comment = " ".join(COMMENTS[key]["text"] for key in ordered_keys).strip()
 
+    # Streamlit no permite modificar st.session_state.final_comment_area después
+    # de crear el text_area con esa key en la misma ejecución.
+    # Por eso las limpiezas se piden con flags y se aplican aquí, antes
+    # de instanciar el widget.
+    if st.session_state.get("pending_clear_selection", False):
+        st.session_state.selected_keys = []
+        st.session_state.previous_selected_keys = []
+        st.session_state.pending_clear_selection = False
+        ordered_keys = []
+        base_comment = ""
+
+    if st.session_state.get("pending_clear_comment_area", False):
+        st.session_state.final_comment_area = ""
+        st.session_state.pending_clear_comment_area = False
+
     # Streamlit mantiene el valor de un text_area con key aunque cambie el parámetro value.
     # Por eso sincronizamos manualmente el comentario editable cuando cambia la selección
     # de motivos, replicando el comportamiento de la app Tkinter original.
@@ -1283,18 +1300,16 @@ def render_generador_comentarios():
         if st.button("🧹 Guardar y limpiar", use_container_width=True):
             if procesar_copia():
                 st.session_state.last_saved_comment = final_comment
-                st.session_state.selected_keys = []
-                st.session_state.previous_selected_keys = []
                 st.session_state.claim_val = ""
-                st.session_state.final_comment_area = ""
+                st.session_state.pending_clear_selection = True
+                st.session_state.pending_clear_comment_area = True
                 st.rerun()
 
     with col_b3:
         if st.button("🗑️ Limpiar selección", use_container_width=True):
-            st.session_state.selected_keys = []
-            st.session_state.previous_selected_keys = []
-            st.session_state.final_comment_area = ""
             st.session_state.confirm_missing_claim = False
+            st.session_state.pending_clear_selection = True
+            st.session_state.pending_clear_comment_area = True
             st.rerun()
 
     with col_b4:

@@ -62,7 +62,9 @@ DEFAULT_SESSION_VALUES = {
     "resultado_ia_excel": None,
     "resultado_consultorio": None,
     "selected_keys": [],
+    "previous_selected_keys": [],
     "claim_val": "",
+    "final_comment_area": "",
     "confirm_missing_claim": False,
     "tokens_totales_input": 0,
     "tokens_totales_output": 0,
@@ -1030,9 +1032,10 @@ def render_generador_comentarios():
     col_c1, col_c2, col_c3 = st.columns([1.5, 2, 1.2])
     with col_c1:
         st.session_state.claim_val = st.text_input(
-            "Garantía / claim:",
+            "Nº reclamación / garantía:",
             value=st.session_state.claim_val,
-            placeholder="Ej: CO202608310001"
+            placeholder="Ej: CO202608310001",
+            help="Rellénalo antes de guardar si quieres poder cruzar después el registro con el DMS."
         ).strip().upper()
 
     with col_c2:
@@ -1044,6 +1047,15 @@ def render_generador_comentarios():
     with col_c3:
         highlight_top = st.checkbox("Resaltar TOP en lista", value=False)
         warn_missing_claim = st.checkbox("Avisar si falta claim", value=True)
+
+    # Disclaimer fijo: la claim es opcional, pero es la única clave sólida para cruzar con DMS.
+    if not st.session_state.claim_val:
+        st.warning(
+            "⚠️ **Antes de guardar:** revisa si quieres informar el **número de reclamación/garantía**. "
+            "Si lo dejas vacío, el registro se guardará como `NO INFORMADO` y luego no podrás cruzarlo de forma fiable con el DMS."
+        )
+    else:
+        st.success(f"✅ Reclamación informada para el registro: `{st.session_state.claim_val}`")
 
     st.markdown("---")
 
@@ -1087,13 +1099,22 @@ def render_generador_comentarios():
     ordered_keys = [key for key in COMMENTS if key in st.session_state.selected_keys]
     base_comment = " ".join(COMMENTS[key]["text"] for key in ordered_keys).strip()
 
+    # Streamlit mantiene el valor de un text_area con key aunque cambie el parámetro value.
+    # Por eso sincronizamos manualmente el comentario editable cuando cambia la selección
+    # de motivos, replicando el comportamiento de la app Tkinter original.
+    previous_ordered_keys = [key for key in COMMENTS if key in st.session_state.previous_selected_keys]
+    selection_changed = ordered_keys != previous_ordered_keys
+
+    if selection_changed:
+        st.session_state.final_comment_area = base_comment
+        st.session_state.previous_selected_keys = ordered_keys.copy()
+
     st.subheader("Comentario generado editable:")
     final_comment = st.text_area(
         "Revisa o modifica el texto antes de copiar:",
-        value=base_comment,
         height=110,
         key="final_comment_area"
-    )
+    ).strip()
 
     render_browser_copy_button(
         final_comment,
@@ -1108,7 +1129,11 @@ def render_generador_comentarios():
 
         if warn_missing_claim and not st.session_state.claim_val and not st.session_state.confirm_missing_claim:
             st.session_state.confirm_missing_claim = True
-            st.warning("⚠️ **Claim no informada:** si continúas, el registro se guardará como `NO INFORMADO`. Vuelve a pulsar para confirmar.")
+            st.error(
+                "🚨 **No has informado el número de reclamación/garantía.** "
+                "Si guardas así, se registrará como `NO INFORMADO` y no servirá para cruce claim a claim con DMS. "
+                "Rellena el campo de arriba o vuelve a pulsar el botón de guardar para confirmar que quieres guardarlo sin claim."
+            )
             return False
 
         log_generated_comment(ordered_keys, final_comment, base_comment, st.session_state.claim_val)
@@ -1146,6 +1171,7 @@ def render_generador_comentarios():
                 copied, copy_message = copy_to_system_clipboard(final_comment)
                 if copied:
                     st.session_state.selected_keys = []
+                    st.session_state.previous_selected_keys = []
                     st.session_state.claim_val = ""
                     st.session_state.final_comment_area = ""
                     st.success(f"✅ Comentario registrado y copiado. {copy_message}")
@@ -1160,6 +1186,8 @@ def render_generador_comentarios():
     with col_b3:
         if st.button("🗑️ Limpiar selección", use_container_width=True):
             st.session_state.selected_keys = []
+            st.session_state.previous_selected_keys = []
+            st.session_state.final_comment_area = ""
             st.session_state.confirm_missing_claim = False
             st.rerun()
 
@@ -1437,4 +1465,3 @@ if check_password(txt):
         render_solicitar_operacion(txt)
     elif opcion_menu == txt["menu_consultorio"]:
         render_consultorio_ia()
-

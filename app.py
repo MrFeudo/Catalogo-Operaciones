@@ -1285,6 +1285,20 @@ def render_generador_comentarios():
         "Alt + N = nº reclamación · Alt + B = buscador · Alt + L = limpiar selección"
     )
 
+    # Streamlit mantiene estado propio para cada checkbox y para el text_area.
+    # Las limpiezas deben aplicarse ANTES de pintar esos widgets, si no,
+    # la selección visual puede quedarse marcada aunque borremos selected_keys.
+    if st.session_state.get("pending_clear_selection", False):
+        st.session_state.selected_keys = []
+        st.session_state.previous_selected_keys = []
+        for comment_key in COMMENTS:
+            st.session_state[f"chk_{comment_key}"] = False
+        st.session_state.pending_clear_selection = False
+
+    if st.session_state.get("pending_clear_comment_area", False):
+        st.session_state.final_comment_area = ""
+        st.session_state.pending_clear_comment_area = False
+
     if st.session_state.last_saved_comment:
         st.success("✅ Último comentario guardado en CSVs. Cópialo con el botón de navegador de abajo.")
         render_browser_copy_button(
@@ -1370,21 +1384,6 @@ def render_generador_comentarios():
 
     ordered_keys = [key for key in COMMENTS if key in st.session_state.selected_keys]
     base_comment = " ".join(COMMENTS[key]["text"] for key in ordered_keys).strip()
-
-    # Streamlit no permite modificar st.session_state.final_comment_area después
-    # de crear el text_area con esa key en la misma ejecución.
-    # Por eso las limpiezas se piden con flags y se aplican aquí, antes
-    # de instanciar el widget.
-    if st.session_state.get("pending_clear_selection", False):
-        st.session_state.selected_keys = []
-        st.session_state.previous_selected_keys = []
-        st.session_state.pending_clear_selection = False
-        ordered_keys = []
-        base_comment = ""
-
-    if st.session_state.get("pending_clear_comment_area", False):
-        st.session_state.final_comment_area = ""
-        st.session_state.pending_clear_comment_area = False
 
     # Streamlit mantiene el valor de un text_area con key aunque cambie el parámetro value.
     # Por eso sincronizamos manualmente el comentario editable cuando cambia la selección
@@ -1494,30 +1493,83 @@ def render_generador_comentarios():
                 hide_index=True
             )
 
+        color_domain = CATEGORY_ORDER + ["Comentario manual"]
+        color_range = [CATEGORY_COLOR_MAP.get(category, "#7f7f7f") for category in color_domain]
+
         with tab_bars:
-            chart_df = df_stats[["Motivo", "Usos"]].set_index("Motivo")
-            st.bar_chart(chart_df, use_container_width=True)
+            try:
+                import altair as alt
+
+                bar_df = df_stats.copy()
+                bar_df["Porcentaje"] = bar_df["%"].map(lambda value: f"{value:.1f}%")
+
+                bar_chart = (
+                    alt.Chart(bar_df)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("Usos:Q", title="Usos"),
+                        y=alt.Y(
+                            "Motivo:N",
+                            title="Motivo",
+                            sort=alt.EncodingSortField(field="Usos", order="descending"),
+                        ),
+                        color=alt.Color(
+                            "Categoría:N",
+                            scale=alt.Scale(domain=color_domain, range=color_range),
+                            legend=alt.Legend(title="Categoría"),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("TOP:N", title="TOP"),
+                            alt.Tooltip("Motivo:N", title="Motivo"),
+                            alt.Tooltip("Categoría:N", title="Categoría"),
+                            alt.Tooltip("Usos:Q", title="Usos"),
+                            alt.Tooltip("Porcentaje:N", title="%"),
+                        ],
+                    )
+                    .properties(height=max(320, len(bar_df) * 28))
+                )
+
+                st.altair_chart(bar_chart, use_container_width=True)
+            except Exception as exc:
+                st.warning(f"No se pudo mostrar el gráfico de barras. Muestro la tabla en su lugar. Detalle: {exc}")
+                st.dataframe(df_stats[["Motivo", "Categoría", "Usos"]], use_container_width=True, hide_index=True)
 
         with tab_pie:
             if df_cat.empty:
                 st.info("Aún no hay categorías con usos registrados.")
             else:
                 try:
-                    import matplotlib.pyplot as plt
-                    fig, ax = plt.subplots(figsize=(8, 5))
-                    colors = [CATEGORY_COLOR_MAP.get(cat, "#7f7f7f") for cat in df_cat["Categoría"]]
-                    ax.pie(
-                        df_cat["Usos"],
-                        labels=df_cat["Categoría"],
-                        autopct=lambda p: f"{p:.1f}%" if p >= 3 else "",
-                        startangle=90,
-                        colors=colors,
+                    import altair as alt
+
+                    pie_df = df_cat.copy()
+                    pie_df["Porcentaje"] = pie_df["%"].map(lambda value: f"{value:.1f}%")
+
+                    pie_chart = (
+                        alt.Chart(pie_df)
+                        .mark_arc(innerRadius=45)
+                        .encode(
+                            theta=alt.Theta("Usos:Q", title="Usos"),
+                            color=alt.Color(
+                                "Categoría:N",
+                                scale=alt.Scale(domain=color_domain, range=color_range),
+                                legend=alt.Legend(title="Categoría"),
+                            ),
+                            tooltip=[
+                                alt.Tooltip("Categoría:N", title="Categoría"),
+                                alt.Tooltip("Usos:Q", title="Usos"),
+                                alt.Tooltip("Porcentaje:N", title="%"),
+                            ],
+                        )
+                        .properties(height=430)
                     )
-                    ax.axis("equal")
-                    ax.set_title("Distribución por categoría")
-                    st.pyplot(fig, use_container_width=True)
-                except Exception:
-                    st.dataframe(df_cat, use_container_width=True, hide_index=True)
+
+                    st.altair_chart(pie_chart, use_container_width=True)
+                    st.caption("Los colores del pie y de las barras usan la misma leyenda por categoría.")
+                except Exception as exc:
+                    st.warning(f"No se pudo mostrar el pie chart. Muestro la tabla en su lugar. Detalle: {exc}")
+                    display_cat = df_cat.copy()
+                    display_cat["%"] = display_cat["%"].map(lambda value: f"{value:.1f}%")
+                    st.dataframe(display_cat, use_container_width=True, hide_index=True)
 
 
 # =========================================================================

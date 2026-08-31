@@ -1132,14 +1132,70 @@ def render_keyboard_shortcuts():
                     return false;
                 }
 
+                // 1) Intento moderno. Usamos el navigator de la ventana padre porque
+                // Streamlit mete components.html dentro de un iframe y, según navegador
+                // o despliegue, el iframe puede no tener permiso de clipboard.
                 try {
-                    await navigator.clipboard.writeText(text);
-                    showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
-                    return true;
+                    if (parentWindow.navigator && parentWindow.navigator.clipboard) {
+                        await parentWindow.navigator.clipboard.writeText(text);
+                        showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
+                        return true;
+                    }
                 } catch (err) {
-                    showShortcutStatus('No se pudo copiar. Usa el botón de copia o selecciona el texto.', true);
-                    return false;
+                    // Pasamos al fallback clásico.
                 }
+
+                // 2) Fallback clásico: seleccionar temporalmente el textarea real de
+                // Streamlit y ejecutar copy desde el documento padre. Suele funcionar
+                // mejor con atajos de teclado porque el evento viene de una acción del usuario.
+                try {
+                    textarea.focus();
+                    textarea.select();
+                    textarea.setSelectionRange(0, textarea.value.length);
+
+                    const copied = parentDocument.execCommand('copy');
+
+                    // Quitamos la selección para no dejar la pantalla rara.
+                    if (parentWindow.getSelection) {
+                        const selection = parentWindow.getSelection();
+                        if (selection && selection.removeAllRanges) {
+                            selection.removeAllRanges();
+                        }
+                    }
+
+                    if (copied) {
+                        showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
+                        return true;
+                    }
+                } catch (err) {
+                    // Pasamos al fallback invisible.
+                }
+
+                // 3) Último fallback: crear un textarea invisible en el documento padre,
+                // copiarlo y borrarlo.
+                try {
+                    const helper = parentDocument.createElement('textarea');
+                    helper.value = text;
+                    helper.setAttribute('readonly', '');
+                    helper.style.position = 'fixed';
+                    helper.style.left = '-9999px';
+                    helper.style.top = '-9999px';
+                    parentDocument.body.appendChild(helper);
+                    helper.focus();
+                    helper.select();
+                    const copied = parentDocument.execCommand('copy');
+                    parentDocument.body.removeChild(helper);
+
+                    if (copied) {
+                        showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
+                        return true;
+                    }
+                } catch (err) {
+                    // Nada más que probar.
+                }
+
+                showShortcutStatus('No se pudo copiar automáticamente. Usa el botón o selecciona el texto.', true);
+                return false;
             }
 
             async function copyThenClick(buttonText) {
@@ -1679,3 +1735,4 @@ if check_password(txt):
         render_solicitar_operacion(txt)
     elif opcion_menu == txt["menu_consultorio"]:
         render_consultorio_ia()
+

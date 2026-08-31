@@ -3,6 +3,8 @@
 import csv
 import io
 import json
+import math
+import html
 import re
 import time
 import unicodedata
@@ -524,6 +526,219 @@ def add_matplotlib_value_labels(ax, values):
             va="center",
             fontsize=9,
         )
+
+
+def _escape_html(value):
+    return html.escape(str(value or ""), quote=True)
+
+
+def render_dependency_free_bar_chart(df_stats):
+    """
+    Gráfico de barras sin matplotlib/plotly/altair.
+    Usa HTML/CSS para funcionar en Streamlit Cloud sin dependencias extra.
+    Cada motivo usa un tono de la familia de color de su categoría.
+    """
+    if df_stats.empty:
+        st.info("Aún no hay motivos con usos registrados.")
+        return
+
+    bar_df = df_stats.copy().sort_values(by=["Usos", "ID"], ascending=[False, True])
+    max_value = int(bar_df["Usos"].max()) if not bar_df.empty else 0
+    max_value = max(max_value, 1)
+
+    used_categories = [
+        category for category in CATEGORY_ORDER
+        if category in set(bar_df["Categoría"].tolist())
+    ]
+
+    tick_step = 1
+    if max_value > 12:
+        tick_step = max(1, math.ceil(max_value / 8))
+    ticks = list(range(0, max_value + 1, tick_step))
+    if ticks[-1] != max_value:
+        ticks.append(max_value)
+
+    rows_html = []
+    for _, row in bar_df.iterrows():
+        reason_id = str(row["ID"])
+        reason_label = f"{reason_id}. {row['Motivo']}"
+        uses = int(row["Usos"])
+        width_pct = (uses / max_value) * 100 if max_value else 0
+        color = get_reason_color(reason_id)
+
+        rows_html.append(
+            f"""
+            <div class="bar-row">
+                <div class="bar-label" title="{_escape_html(reason_label)}">{_escape_html(reason_label)}</div>
+                <div class="bar-track">
+                    <div class="bar-fill" style="width:{width_pct:.2f}%; background:{color};"></div>
+                    <span class="bar-value">{uses}</span>
+                </div>
+            </div>
+            """
+        )
+
+    ticks_html = "".join(
+        f'<span style="left:{(tick / max_value * 100 if max_value else 0):.2f}%">{tick}</span>'
+        for tick in ticks
+    )
+
+    legend_html = "".join(
+        f"""
+        <div class="legend-item">
+            <span class="legend-swatch" style="background:{get_category_color(category)}"></span>
+            <span>{_escape_html(category)}</span>
+        </div>
+        """
+        for category in used_categories
+    )
+
+    chart_height = max(420, 54 * len(bar_df) + 120)
+    components.html(
+        f"""
+        <div class="chart-card">
+            <div class="chart-title">Usos por motivo</div>
+            <div class="chart-layout">
+                <div class="bars-area">
+                    {''.join(rows_html)}
+                    <div class="x-axis">{ticks_html}</div>
+                    <div class="x-axis-title">Usos</div>
+                </div>
+                <div class="legend-area">
+                    <div class="legend-title">Categorías</div>
+                    {legend_html}
+                </div>
+            </div>
+            <div class="chart-caption">Cada barra muestra usos enteros. Los tonos pertenecen a la familia de color de su categoría.</div>
+        </div>
+        <style>
+            .chart-card {{ font-family: "Segoe UI", Arial, sans-serif; padding: 12px 14px 6px 14px; width: 100%; box-sizing: border-box; }}
+            .chart-title {{ font-size: 22px; font-weight: 650; text-align: center; margin-bottom: 18px; color: #1f2937; }}
+            .chart-layout {{ display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }}
+            .bars-area {{ position: relative; padding-bottom: 46px; border-left: 1px solid #d8dde6; }}
+            .bar-row {{ display: grid; grid-template-columns: 360px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 42px; margin-bottom: 6px; }}
+            .bar-label {{ font-size: 13px; color: #374151; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }}
+            .bar-track {{ position: relative; height: 24px; background-image: repeating-linear-gradient(to right, rgba(148, 163, 184, 0.18) 0, rgba(148, 163, 184, 0.18) 1px, transparent 1px, transparent 10%); }}
+            .bar-fill {{ height: 24px; border-radius: 0 3px 3px 0; }}
+            .bar-value {{ position: absolute; left: calc(100% + 6px); top: 2px; font-size: 13px; color: #111827; font-weight: 600; }}
+            .x-axis {{ position: absolute; left: 368px; right: 0; bottom: 24px; height: 20px; border-top: 1px solid #d8dde6; }}
+            .x-axis span {{ position: absolute; transform: translateX(-50%); top: 5px; font-size: 11px; color: #64748b; }}
+            .x-axis-title {{ position: absolute; left: 368px; right: 0; bottom: 0; text-align: center; font-size: 13px; color: #64748b; }}
+            .legend-area {{ font-size: 13px; color: #374151; padding-top: 6px; }}
+            .legend-title {{ font-weight: 650; margin-bottom: 8px; color: #1f2937; }}
+            .legend-item {{ display: flex; align-items: center; gap: 8px; margin-bottom: 8px; line-height: 1.25; white-space: normal; }}
+            .legend-swatch {{ display: inline-block; width: 13px; height: 13px; border-radius: 2px; flex: 0 0 auto; }}
+            .chart-caption {{ margin-top: 8px; font-size: 12px; color: #6b7280; }}
+        </style>
+        """,
+        height=chart_height,
+        scrolling=True,
+    )
+
+
+def _donut_slice_path(cx, cy, r_outer, r_inner, start_angle, end_angle):
+    start_rad = math.radians(start_angle)
+    end_rad = math.radians(end_angle)
+    x1 = cx + r_outer * math.cos(start_rad)
+    y1 = cy + r_outer * math.sin(start_rad)
+    x2 = cx + r_outer * math.cos(end_rad)
+    y2 = cy + r_outer * math.sin(end_rad)
+    x3 = cx + r_inner * math.cos(end_rad)
+    y3 = cy + r_inner * math.sin(end_rad)
+    x4 = cx + r_inner * math.cos(start_rad)
+    y4 = cy + r_inner * math.sin(start_rad)
+    large_arc = 1 if end_angle - start_angle > 180 else 0
+    return (
+        f"M {x1:.2f} {y1:.2f} "
+        f"A {r_outer} {r_outer} 0 {large_arc} 1 {x2:.2f} {y2:.2f} "
+        f"L {x3:.2f} {y3:.2f} "
+        f"A {r_inner} {r_inner} 0 {large_arc} 0 {x4:.2f} {y4:.2f} Z"
+    )
+
+
+def render_dependency_free_pie_chart(df_cat):
+    """Donut chart sin matplotlib, con porcentajes y leyenda completa."""
+    if df_cat.empty:
+        st.info("Aún no hay categorías con usos registrados.")
+        return
+
+    pie_df = df_cat.copy().sort_values(by="Usos", ascending=False)
+    total = int(pie_df["Usos"].sum())
+    if total <= 0:
+        st.info("Aún no hay categorías con usos registrados.")
+        return
+
+    cx, cy = 250, 250
+    r_outer, r_inner = 190, 70
+    current_angle = -90
+    paths = []
+    labels = []
+    legend_items = []
+
+    for _, row in pie_df.iterrows():
+        category = str(row["Categoría"])
+        uses = int(row["Usos"])
+        percent = uses / total * 100
+        angle = uses / total * 360
+        start = current_angle
+        end = current_angle + angle
+        color = get_category_color(category)
+        if angle >= 359.99:
+            end = start + 359.99
+
+        paths.append(
+            f'<path d="{_donut_slice_path(cx, cy, r_outer, r_inner, start, end)}" fill="{color}" stroke="white" stroke-width="2"></path>'
+        )
+
+        mid = math.radians((start + end) / 2)
+        label_radius = (r_outer + r_inner) / 2
+        lx = cx + label_radius * math.cos(mid)
+        ly = cy + label_radius * math.sin(mid)
+        labels.append(
+            f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" class="percent-label">{percent:.1f}%</text>'
+        )
+
+        legend_items.append(
+            f"""
+            <div class="legend-item">
+                <span class="legend-swatch" style="background:{color}"></span>
+                <span>{_escape_html(category)}: {uses} usos ({percent:.1f}%)</span>
+            </div>
+            """
+        )
+        current_angle += angle
+
+    components.html(
+        f"""
+        <div class="pie-card">
+            <div class="chart-title">Distribución por categoría</div>
+            <div class="pie-layout">
+                <svg viewBox="0 0 500 500" class="pie-svg" role="img" aria-label="Distribución por categoría">
+                    {''.join(paths)}
+                    <circle cx="{cx}" cy="{cy}" r="{r_inner}" fill="white"></circle>
+                    {''.join(labels)}
+                </svg>
+                <div class="legend-area">
+                    <div class="legend-title">Categorías</div>
+                    {''.join(legend_items)}
+                </div>
+            </div>
+        </div>
+        <style>
+            .pie-card {{ font-family: "Segoe UI", Arial, sans-serif; padding: 12px 14px 8px 14px; width: 100%; box-sizing: border-box; }}
+            .chart-title {{ font-size: 22px; font-weight: 650; text-align: center; margin-bottom: 10px; color: #1f2937; }}
+            .pie-layout {{ display: grid; grid-template-columns: minmax(420px, 560px) minmax(360px, 1fr); gap: 28px; align-items: center; justify-content: center; }}
+            .pie-svg {{ width: 100%; max-width: 560px; height: auto; display: block; margin: 0 auto; }}
+            .percent-label {{ font-size: 20px; font-weight: 650; fill: #111827; }}
+            .legend-area {{ font-size: 14px; color: #374151; }}
+            .legend-title {{ font-weight: 650; margin-bottom: 10px; color: #1f2937; }}
+            .legend-item {{ display: flex; align-items: center; gap: 9px; margin-bottom: 9px; line-height: 1.3; white-space: normal; }}
+            .legend-swatch {{ display: inline-block; width: 14px; height: 14px; border-radius: 2px; flex: 0 0 auto; }}
+        </style>
+        """,
+        height=610,
+        scrolling=False,
+    )
 
 
 # =========================================================================
@@ -1340,20 +1555,117 @@ def render_keyboard_shortcuts():
 # =========================================================================
 # PANTALLA 2 - GENERADOR DE COMENTARIOS
 # =========================================================================
-def render_generador_comentarios():
-    render_keyboard_shortcuts()
-
-    st.title("📊 Estadísticas de garantías devueltas")
-    st.caption("Registra los motivos de garantías devueltas, revisa el comentario, cópialo al portapapeles y guárdalo en los CSV.")
-    st.caption(
-        "Atajos: Enter = copiar + guardar y limpiar cuando no estás escribiendo · "
-        "Ctrl + Enter = copiar + guardar · Ctrl + Shift + Enter = copiar + guardar y limpiar · "
-        "Alt + N = nº reclamación · Alt + B = buscador · Alt + L = limpiar selección"
+def render_generador_compact_css():
+    """CSS ligero para que esta pestaña se sienta más herramienta de escritorio que dashboard."""
+    st.markdown(
+        """
+        <style>
+            /* Compacta solo de forma razonable la pantalla: menos aire, más herramienta. */
+            .block-container {
+                padding-top: 1.1rem !important;
+                padding-bottom: 1rem !important;
+            }
+            div[data-testid="stVerticalBlock"] { gap: 0.45rem; }
+            div[data-testid="stHorizontalBlock"] { gap: 0.7rem; }
+            h1 { font-size: 1.45rem !important; margin-bottom: 0.2rem !important; }
+            h2, h3 { margin-top: 0.25rem !important; margin-bottom: 0.25rem !important; }
+            h4 { font-size: 0.92rem !important; margin-top: 0.2rem !important; margin-bottom: 0.25rem !important; }
+            label, [data-testid="stMarkdownContainer"] p { line-height: 1.15; }
+            div[data-testid="stCheckbox"] { margin-bottom: -0.22rem; }
+            div[data-testid="stCheckbox"] label { align-items: flex-start; }
+            div[data-testid="stCheckbox"] p { font-size: 0.82rem !important; line-height: 1.12 !important; }
+            div[data-testid="stTextInput"] { margin-bottom: -0.25rem; }
+            div[data-testid="stTextArea"] textarea {
+                font-size: 0.92rem !important;
+                line-height: 1.28 !important;
+            }
+            div[data-testid="stButton"] button {
+                padding-top: 0.35rem !important;
+                padding-bottom: 0.35rem !important;
+                min-height: 2.05rem !important;
+            }
+            .oj-compact-title {
+                display:flex;
+                align-items:center;
+                justify-content:space-between;
+                gap:12px;
+                padding: 7px 10px;
+                border:1px solid #e5e7eb;
+                border-radius:10px;
+                background:#fafafa;
+                margin-bottom: 6px;
+            }
+            .oj-compact-title-main {
+                font-size: 1.08rem;
+                font-weight: 750;
+                color:#111827;
+            }
+            .oj-compact-title-sub {
+                font-size: 0.78rem;
+                color:#6b7280;
+                margin-top:2px;
+            }
+            .oj-shortcuts-pill {
+                font-size:0.72rem;
+                color:#374151;
+                background:#eef2ff;
+                border:1px solid #c7d2fe;
+                padding:4px 8px;
+                border-radius:999px;
+                white-space:nowrap;
+            }
+            .oj-claim-warning {
+                background:#fff7ed;
+                border:1px solid #fed7aa;
+                color:#9a3412;
+                border-radius:8px;
+                padding:6px 9px;
+                font-size:0.82rem;
+                margin: 2px 0 6px 0;
+            }
+            .oj-claim-ok {
+                background:#ecfdf5;
+                border:1px solid #bbf7d0;
+                color:#166534;
+                border-radius:8px;
+                padding:6px 9px;
+                font-size:0.82rem;
+                margin: 2px 0 6px 0;
+            }
+            .oj-mini-panel {
+                border:1px solid #e5e7eb;
+                border-radius:10px;
+                padding:8px 10px;
+                background:#ffffff;
+                margin-bottom: 8px;
+            }
+            .oj-panel-title {
+                font-weight:700;
+                font-size:0.88rem;
+                color:#111827;
+                margin-bottom:4px;
+            }
+            .oj-muted {
+                color:#6b7280;
+                font-size:0.78rem;
+            }
+            .oj-category-rule {
+                height:1px;
+                background:#e5e7eb;
+                margin: 4px 0 6px 0;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
+
+def render_generador_comentarios():
+    render_keyboard_shortcuts()
+    render_generador_compact_css()
+
     # Streamlit mantiene estado propio para cada checkbox y para el text_area.
-    # Las limpiezas deben aplicarse ANTES de pintar esos widgets, si no,
-    # la selección visual puede quedarse marcada aunque borremos selected_keys.
+    # Las limpiezas deben aplicarse ANTES de pintar esos widgets.
     if st.session_state.get("pending_clear_selection", False):
         st.session_state.selected_keys = []
         st.session_state.previous_selected_keys = []
@@ -1365,26 +1677,44 @@ def render_generador_comentarios():
         st.session_state.final_comment_area = ""
         st.session_state.pending_clear_comment_area = False
 
+    st.markdown(
+        """
+        <div class="oj-compact-title">
+            <div>
+                <div class="oj-compact-title-main">📊 Estadísticas de garantías devueltas</div>
+                <div class="oj-compact-title-sub">Modo compacto: motivo → comentario → guardar/copiar.</div>
+            </div>
+            <div class="oj-shortcuts-pill">Enter · Ctrl+Enter · Ctrl+Shift+Enter · Alt+N/B/L</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     if st.session_state.last_saved_comment:
-        st.success("✅ Último comentario guardado en CSVs. Cópialo con el botón de navegador de abajo.")
-        render_browser_copy_button(
-            st.session_state.last_saved_comment,
-            button_text="📋 Copiar último comentario guardado",
-            key="copy_last_saved_comment"
-        )
-        with st.expander("Ver último comentario guardado", expanded=False):
-            st.code(st.session_state.last_saved_comment, language=None)
-        if st.button("Ocultar último comentario guardado", key="hide_last_saved_comment"):
-            st.session_state.last_saved_comment = ""
-            st.rerun()
+        with st.container():
+            st.success("✅ Último comentario guardado en CSVs.")
+            render_browser_copy_button(
+                st.session_state.last_saved_comment,
+                button_text="📋 Copiar último comentario",
+                key="copy_last_saved_comment"
+            )
+            hide_col, view_col = st.columns([1, 2])
+            with hide_col:
+                if st.button("Ocultar último", key="hide_last_saved_comment", use_container_width=True):
+                    st.session_state.last_saved_comment = ""
+                    st.rerun()
+            with view_col:
+                with st.expander("Ver texto del último comentario", expanded=False):
+                    st.code(st.session_state.last_saved_comment, language=None)
 
     usage_stats = load_usage_stats()
     rank_map = get_usage_rank_map(usage_stats)
 
-    col_c1, col_c2, col_c3 = st.columns([1.5, 2, 1.2])
+    # Barra superior compacta.
+    col_c1, col_c2, col_c3, col_c4 = st.columns([1.35, 1.75, 0.78, 0.78])
     with col_c1:
         st.session_state.claim_val = st.text_input(
-            "Nº reclamación / garantía:",
+            "Nº reclamación / garantía",
             value=st.session_state.claim_val,
             placeholder="Ej: CO202608310001",
             help="Rellénalo antes de guardar si quieres poder cruzar después el registro con el DMS."
@@ -1392,68 +1722,80 @@ def render_generador_comentarios():
 
     with col_c2:
         search_query = st.text_input(
-            "Buscar:",
+            "Buscar",
             placeholder="Filtrar por ID, motivo, categoría o texto..."
         ).strip()
 
     with col_c3:
-        highlight_top = st.checkbox("Resaltar TOP en lista", value=False)
-        warn_missing_claim = st.checkbox("Avisar si falta claim", value=True)
+        highlight_top = st.checkbox("TOP", value=False, help="Resaltar TOP 1-5 en la lista")
 
-    # Disclaimer fijo: la claim es opcional, pero es la única clave sólida para cruzar con DMS.
+    with col_c4:
+        warn_missing_claim = st.checkbox("Aviso claim", value=True, help="Avisar si intentas guardar sin nº de reclamación")
+
     if not st.session_state.claim_val:
-        st.warning(
-            "⚠️ **Antes de guardar:** revisa si quieres informar el **número de reclamación/garantía**. "
-            "Si lo dejas vacío, el registro se guardará como `NO INFORMADO` y luego no podrás cruzarlo de forma fiable con el DMS."
+        st.markdown(
+            """
+            <div class="oj-claim-warning">
+                ⚠️ <b>Antes de guardar:</b> si quieres cruzar con DMS, informa el nº de reclamación/garantía. Si lo dejas vacío, se guardará como <code>NO INFORMADO</code>.
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
     else:
-        st.success(f"✅ Reclamación informada para el registro: `{st.session_state.claim_val}`")
-
-    st.markdown("---")
+        st.markdown(
+            f"""
+            <div class="oj-claim-ok">
+                ✅ Reclamación informada: <code>{_escape_html(st.session_state.claim_val)}</code>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     query_norm = normalize_text(search_query)
-    grid_cols = st.columns(3)
 
-    for idx, category in enumerate(CATEGORY_ORDER):
-        target_col = grid_cols[idx % 3]
-        cat_items = []
-        for key, item in COMMENTS.items():
-            if item["category"] == category:
-                searchable = normalize_text(f"{key} {item['category']} {item['label']} {item['text']}")
-                if not query_norm or query_norm in searchable:
-                    cat_items.append((key, item))
+    # Layout extremo: razones a la izquierda, comentario/acciones a la derecha.
+    motivos_col, panel_col = st.columns([2.45, 1.05], gap="medium")
 
-        if cat_items:
-            with target_col:
-                st.markdown(f"#### {category}")
-                for key, item in cat_items:
-                    uses = usage_stats.get(key, 0)
-                    rank = rank_map.get(key)
+    with motivos_col:
+        st.markdown('<div class="oj-mini-panel"><div class="oj-panel-title">Motivos</div><div class="oj-muted">Marca una o varias razones. El comentario se genera automáticamente.</div></div>', unsafe_allow_html=True)
 
-                    usage_text = f"{uses} usos"
-                    if highlight_top and rank is not None:
-                        if rank <= TOP_RED_LIMIT:
-                            usage_text += f" 🔥 TOP {rank}"
-                        elif rank <= TOP_AMBER_LIMIT:
-                            usage_text += f" ⚠️ TOP {rank}"
+        grid_cols = st.columns(3)
+        for idx, category in enumerate(CATEGORY_ORDER):
+            target_col = grid_cols[idx % 3]
+            cat_items = []
+            for key, item in COMMENTS.items():
+                if item["category"] == category:
+                    searchable = normalize_text(f"{key} {item['category']} {item['label']} {item['text']}")
+                    if not query_norm or query_norm in searchable:
+                        cat_items.append((key, item))
 
-                    label_text = f"**{item['label']}**  \n:gray[({usage_text})]"
-                    is_checked = key in st.session_state.selected_keys
+            if cat_items:
+                with target_col:
+                    st.markdown(f"#### {category}")
+                    st.markdown('<div class="oj-category-rule"></div>', unsafe_allow_html=True)
+                    for key, item in cat_items:
+                        uses = usage_stats.get(key, 0)
+                        rank = rank_map.get(key)
 
-                    checked = st.checkbox(label_text, value=is_checked, key=f"chk_{key}")
-                    if checked and key not in st.session_state.selected_keys:
-                        st.session_state.selected_keys.append(key)
-                    elif not checked and key in st.session_state.selected_keys:
-                        st.session_state.selected_keys.remove(key)
+                        usage_text = f"{int(uses)} usos"
+                        if highlight_top and rank is not None:
+                            if rank <= TOP_RED_LIMIT:
+                                usage_text += f" 🔥 TOP {rank}"
+                            elif rank <= TOP_AMBER_LIMIT:
+                                usage_text += f" ⚠️ TOP {rank}"
 
-    st.markdown("---")
+                        label_text = f"**{item['label']}**  \n:gray[({usage_text})]"
+                        is_checked = key in st.session_state.selected_keys
+
+                        checked = st.checkbox(label_text, value=is_checked, key=f"chk_{key}")
+                        if checked and key not in st.session_state.selected_keys:
+                            st.session_state.selected_keys.append(key)
+                        elif not checked and key in st.session_state.selected_keys:
+                            st.session_state.selected_keys.remove(key)
 
     ordered_keys = [key for key in COMMENTS if key in st.session_state.selected_keys]
     base_comment = " ".join(COMMENTS[key]["text"] for key in ordered_keys).strip()
 
-    # Streamlit mantiene el valor de un text_area con key aunque cambie el parámetro value.
-    # Por eso sincronizamos manualmente el comentario editable cuando cambia la selección
-    # de motivos, replicando el comportamiento de la app Tkinter original.
     previous_ordered_keys = [key for key in COMMENTS if key in st.session_state.previous_selected_keys]
     selection_changed = ordered_keys != previous_ordered_keys
 
@@ -1461,78 +1803,90 @@ def render_generador_comentarios():
         st.session_state.final_comment_area = base_comment
         st.session_state.previous_selected_keys = ordered_keys.copy()
 
-    st.subheader("Comentario generado editable:")
-    final_comment = st.text_area(
-        "Revisa o modifica el texto antes de copiar:",
-        height=110,
-        key="final_comment_area"
-    ).strip()
+    with panel_col:
+        st.markdown(
+            f"""
+            <div class="oj-mini-panel">
+                <div class="oj-panel-title">Comentario</div>
+                <div class="oj-muted">{len(ordered_keys)} razón/razones seleccionadas.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    render_browser_copy_button(
-        final_comment,
-        button_text="📋 Copiar comentario al portapapeles",
-        key="copy_current_comment"
-    )
+        final_comment = st.text_area(
+            "Editar antes de copiar",
+            height=230,
+            key="final_comment_area",
+            label_visibility="collapsed",
+            placeholder="Marca una razón o escribe un comentario manual..."
+        ).strip()
 
-    def procesar_copia():
-        if not final_comment.strip():
-            st.warning("⚠️ Sin comentario: No hay ningún comentario para copiar.")
-            return False
+        render_browser_copy_button(
+            final_comment,
+            button_text="📋 Copiar comentario",
+            key="copy_current_comment"
+        )
 
-        if warn_missing_claim and not st.session_state.claim_val and not st.session_state.confirm_missing_claim:
-            st.session_state.confirm_missing_claim = True
-            st.error(
-                "🚨 **No has informado el número de reclamación/garantía.** "
-                "Si guardas así, se registrará como `NO INFORMADO` y no servirá para cruce claim a claim con DMS. "
-                "Rellena el campo de arriba o vuelve a pulsar el botón de guardar para confirmar que quieres guardarlo sin claim."
-            )
-            return False
+        def procesar_copia():
+            if not final_comment.strip():
+                st.warning("⚠️ Sin comentario: no hay ningún comentario para copiar.")
+                return False
 
-        log_generated_comment(ordered_keys, final_comment, base_comment, st.session_state.claim_val)
-
-        if ordered_keys:
-            update_usage_stats(ordered_keys)
-
-        st.session_state.confirm_missing_claim = False
-        return True
-
-    col_b1, col_b2, col_b3, col_b4 = st.columns([1.35, 1.45, 1.2, 1.6])
-
-    with col_b1:
-        if st.button("💾 Guardar", type="primary", use_container_width=True):
-            if procesar_copia():
-                st.session_state.last_saved_comment = final_comment
-                st.code(final_comment, language=None)
-                st.success("✅ Comentario registrado en CSVs. Cópialo con el botón de navegador.")
-                render_browser_copy_button(
-                    final_comment,
-                    button_text="📋 Copiar ahora",
-                    key="copy_after_save"
+            if warn_missing_claim and not st.session_state.claim_val and not st.session_state.confirm_missing_claim:
+                st.session_state.confirm_missing_claim = True
+                st.error(
+                    "🚨 No has informado el número de reclamación/garantía. "
+                    "Rellena el campo o vuelve a pulsar Guardar para confirmar sin claim."
                 )
+                return False
 
-    with col_b2:
-        if st.button("🧹 Guardar y limpiar", use_container_width=True):
-            if procesar_copia():
-                st.session_state.last_saved_comment = final_comment
-                st.session_state.claim_val = ""
+            log_generated_comment(ordered_keys, final_comment, base_comment, st.session_state.claim_val)
+
+            if ordered_keys:
+                update_usage_stats(ordered_keys)
+
+            st.session_state.confirm_missing_claim = False
+            return True
+
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("💾 Guardar", type="primary", use_container_width=True):
+                if procesar_copia():
+                    st.session_state.last_saved_comment = final_comment
+                    st.success("✅ Guardado en CSVs.")
+                    render_browser_copy_button(
+                        final_comment,
+                        button_text="📋 Copiar ahora",
+                        key="copy_after_save"
+                    )
+
+        with b2:
+            if st.button("🧹 Guardar+limpiar", use_container_width=True):
+                if procesar_copia():
+                    st.session_state.last_saved_comment = final_comment
+                    st.session_state.claim_val = ""
+                    st.session_state.pending_clear_selection = True
+                    st.session_state.pending_clear_comment_area = True
+                    st.rerun()
+
+        b3, b4 = st.columns(2)
+        with b3:
+            if st.button("🗑️ Limpiar", use_container_width=True):
+                st.session_state.confirm_missing_claim = False
                 st.session_state.pending_clear_selection = True
                 st.session_state.pending_clear_comment_area = True
                 st.rerun()
 
-    with col_b3:
-        if st.button("🗑️ Limpiar selección", use_container_width=True):
-            st.session_state.confirm_missing_claim = False
-            st.session_state.pending_clear_selection = True
-            st.session_state.pending_clear_comment_area = True
-            st.rerun()
+        with b4:
+            if st.button("🧽 Claim", use_container_width=True):
+                st.session_state.claim_val = ""
+                st.rerun()
 
-    with col_b4:
-        if st.button("🧽 Limpiar claim", use_container_width=True):
-            st.session_state.claim_val = ""
-            st.rerun()
+        with st.expander("Atajos", expanded=False):
+            st.caption("Enter = copiar + guardar y limpiar si no escribes · Ctrl+Enter = copiar + guardar · Ctrl+Shift+Enter = copiar + guardar y limpiar · Alt+N = claim · Alt+B = buscar · Alt+L = limpiar")
 
-    st.markdown("---")
-    with st.expander("📊 Ver Estadísticas y Análisis de Motivos", expanded=False):
+    with st.expander("📊 Estadísticas y análisis de motivos", expanded=False):
         df_stats = get_stats_dataframe(usage_stats)
         df_cat = get_category_stats_dataframe(usage_stats)
 
@@ -1548,7 +1902,7 @@ def render_generador_comentarios():
             "No se incluyen motivos con 0 usos. El ranking respeta empates."
         )
 
-        tab_tbl, tab_bars, tab_pie = st.tabs(["Tabla de Ranking", "Barras por Motivo", "Pie por Categoría"])
+        tab_tbl, tab_bars, tab_pie = st.tabs(["Tabla", "Barras", "Pie"])
 
         with tab_tbl:
             display_df = df_stats.copy()
@@ -1560,116 +1914,10 @@ def render_generador_comentarios():
             )
 
         with tab_bars:
-            try:
-                import matplotlib.pyplot as plt
-                from matplotlib.ticker import MaxNLocator
-                from matplotlib.patches import Patch
-
-                bar_df = df_stats.copy()
-                bar_df = bar_df.sort_values(by=["Usos", "ID"], ascending=[True, False])
-
-                labels = [
-                    f"{row['ID']}. {shorten_chart_label(row['Motivo'], 52)}"
-                    for _, row in bar_df.iterrows()
-                ]
-                values = [int(value) for value in bar_df["Usos"].tolist()]
-                colors = [get_reason_color(reason_id) for reason_id in bar_df["ID"].tolist()]
-
-                fig_height = max(4.8, len(bar_df) * 0.42)
-                fig, ax = plt.subplots(figsize=(12.5, fig_height))
-                ax.barh(labels, values, color=colors)
-                ax.set_xlabel("Usos")
-                ax.set_ylabel("Motivo")
-                ax.set_title("Usos por motivo")
-                ax.grid(axis="x", linestyle="--", alpha=0.28)
-                ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-
-                max_value = max(values) if values else 0
-                ax.set_xlim(0, max_value + max(1, max_value * 0.16))
-                add_matplotlib_value_labels(ax, values)
-
-                used_categories = [
-                    category for category in CATEGORY_ORDER
-                    if category in set(bar_df["Categoría"].tolist())
-                ]
-                legend_handles = [
-                    Patch(color=get_category_color(category), label=category)
-                    for category in used_categories
-                ]
-                if legend_handles:
-                    ax.legend(
-                        handles=legend_handles,
-                        title="Categoría",
-                        loc="center left",
-                        bbox_to_anchor=(1.01, 0.5),
-                        fontsize=9,
-                        title_fontsize=9,
-                    )
-
-                fig.subplots_adjust(left=0.34, right=0.74, top=0.88, bottom=0.12)
-                st.pyplot(fig, use_container_width=True)
-                plt.close(fig)
-
-                st.caption("Las barras usan tonos distintos dentro del color base de su categoría.")
-            except Exception as exc:
-                st.warning(f"No se pudo mostrar el gráfico de barras. Muestro la tabla en su lugar. Detalle: {exc}")
-                st.dataframe(df_stats[["Motivo", "Categoría", "Usos"]], use_container_width=True, hide_index=True)
+            render_dependency_free_bar_chart(df_stats)
 
         with tab_pie:
-            if df_cat.empty:
-                st.info("Aún no hay categorías con usos registrados.")
-            else:
-                try:
-                    import matplotlib.pyplot as plt
-
-                    pie_df = df_cat.copy()
-                    pie_df = pie_df.sort_values(by="Usos", ascending=False)
-                    values = [int(value) for value in pie_df["Usos"].tolist()]
-                    categories = pie_df["Categoría"].tolist()
-                    colors = [get_category_color(category) for category in categories]
-
-                    fig, ax = plt.subplots(figsize=(11.5, 6.4))
-
-                    wedges, _, autotexts = ax.pie(
-                        values,
-                        startangle=90,
-                        autopct=lambda percent: f"{percent:.1f}%",
-                        pctdistance=0.70,
-                        colors=colors,
-                        textprops={"fontsize": 9},
-                    )
-
-                    for autotext in autotexts:
-                        autotext.set_color("black")
-
-                    ax.set_title("Distribución por categoría")
-                    ax.axis("equal")
-
-                    total = sum(values)
-                    legend_labels = [
-                        f"{category}: {uses} usos ({(uses / total * 100):.1f}%)"
-                        for category, uses in zip(categories, values)
-                    ]
-                    ax.legend(
-                        wedges,
-                        legend_labels,
-                        title="Categorías",
-                        loc="center left",
-                        bbox_to_anchor=(1.02, 0.5),
-                        fontsize=9,
-                        title_fontsize=10,
-                    )
-
-                    fig.subplots_adjust(left=0.04, right=0.67, top=0.88, bottom=0.06)
-                    st.pyplot(fig, use_container_width=True)
-                    plt.close(fig)
-
-                    st.caption("Los porcentajes se muestran en el gráfico y la leyenda queda completa a la derecha.")
-                except Exception as exc:
-                    st.warning(f"No se pudo mostrar el pie chart. Muestro la tabla en su lugar. Detalle: {exc}")
-                    display_cat = df_cat.copy()
-                    display_cat["%"] = display_cat["%"].map(lambda value: f"{value:.1f}%")
-                    st.dataframe(display_cat, use_container_width=True, hide_index=True)
+            render_dependency_free_pie_chart(df_cat)
 
 
 # =========================================================================

@@ -1018,10 +1018,10 @@ def render_keyboard_shortcuts():
     """
     Atajos de teclado para la pantalla de estadísticas de garantías devueltas.
 
-    Streamlit no trae atajos globales de serie, así que se inyecta un pequeño
-    script en el navegador. El script busca los botones por su texto visible y
-    dispara el click correspondiente. Está pensado para uso en local/repositorio
-    propio, manteniendo el flujo rápido de la app Tkinter original.
+    Importante: en Streamlit Cloud/Python no se puede copiar al portapapeles
+    del usuario desde el servidor. Por eso los atajos copian el texto desde el
+    navegador con navigator.clipboard durante el propio evento de teclado y,
+    después, hacen click en el botón de guardado correspondiente.
     """
     components.html(
         """
@@ -1030,11 +1030,42 @@ def render_keyboard_shortcuts():
             const parentWindow = window.parent;
             const parentDocument = parentWindow.document;
 
-            // Evita instalar varios listeners tras cada rerun de Streamlit.
-            if (parentWindow.__ojWarrantyKeyboardShortcutsInstalled) {
-                return;
+            // Reinstalamos el listener en cada rerun para mantener la última versión.
+            if (parentWindow.__ojWarrantyKeyboardShortcutsHandler) {
+                parentDocument.removeEventListener(
+                    'keydown',
+                    parentWindow.__ojWarrantyKeyboardShortcutsHandler,
+                    true
+                );
             }
-            parentWindow.__ojWarrantyKeyboardShortcutsInstalled = true;
+
+            function showShortcutStatus(message, isError=false) {
+                let box = parentDocument.getElementById('oj_shortcut_status_box');
+                if (!box) {
+                    box = parentDocument.createElement('div');
+                    box.id = 'oj_shortcut_status_box';
+                    box.style.position = 'fixed';
+                    box.style.right = '22px';
+                    box.style.bottom = '22px';
+                    box.style.zIndex = '999999';
+                    box.style.padding = '10px 14px';
+                    box.style.borderRadius = '8px';
+                    box.style.fontFamily = 'Arial, sans-serif';
+                    box.style.fontSize = '13px';
+                    box.style.boxShadow = '0 2px 10px rgba(0,0,0,0.18)';
+                    parentDocument.body.appendChild(box);
+                }
+                box.style.background = isError ? '#fdecea' : '#e8f5e9';
+                box.style.color = isError ? '#b00020' : '#1b5e20';
+                box.style.border = isError ? '1px solid #f5c2c7' : '1px solid #b7dfb9';
+                box.innerText = message;
+                window.clearTimeout(parentWindow.__ojShortcutStatusTimeout);
+                parentWindow.__ojShortcutStatusTimeout = window.setTimeout(function () {
+                    if (box && box.parentNode) {
+                        box.parentNode.removeChild(box);
+                    }
+                }, 2600);
+            }
 
             function buttonByText(text) {
                 const buttons = Array.from(parentDocument.querySelectorAll('button'));
@@ -1049,6 +1080,7 @@ def render_keyboard_shortcuts():
                     button.click();
                     return true;
                 }
+                showShortcutStatus('No encuentro el botón: ' + text, true);
                 return false;
             }
 
@@ -1067,31 +1099,86 @@ def render_keyboard_shortcuts():
                 return false;
             }
 
-            parentDocument.addEventListener('keydown', function (event) {
+            function getCommentTextarea() {
+                const textareas = Array.from(parentDocument.querySelectorAll('textarea'));
+
+                // En esta pantalla el comentario editable suele ser el textarea con más contenido.
+                // Así evitamos depender de clases internas de Streamlit, que cambian mucho.
+                const candidates = textareas
+                    .filter(function (textarea) {
+                        const value = textarea.value || '';
+                        const placeholder = textarea.placeholder || '';
+                        const aria = textarea.getAttribute('aria-label') || '';
+                        return (
+                            value.trim().length > 0 ||
+                            placeholder.includes('Revisa') ||
+                            aria.includes('Revisa') ||
+                            aria.includes('modifica')
+                        );
+                    })
+                    .sort(function (a, b) {
+                        return (b.value || '').length - (a.value || '').length;
+                    });
+
+                return candidates.length ? candidates[0] : null;
+            }
+
+            async function copyCurrentCommentFromBrowser() {
+                const textarea = getCommentTextarea();
+                const text = textarea ? (textarea.value || '').trim() : '';
+
+                if (!text) {
+                    showShortcutStatus('No hay comentario para copiar.', true);
+                    return false;
+                }
+
+                try {
+                    await navigator.clipboard.writeText(text);
+                    showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
+                    return true;
+                } catch (err) {
+                    showShortcutStatus('No se pudo copiar. Usa el botón de copia o selecciona el texto.', true);
+                    return false;
+                }
+            }
+
+            async function copyThenClick(buttonText) {
+                const copied = await copyCurrentCommentFromBrowser();
+                if (!copied) {
+                    return;
+                }
+                window.setTimeout(function () {
+                    clickButton(buttonText);
+                }, 80);
+            }
+
+            parentWindow.__ojWarrantyKeyboardShortcutsHandler = function (event) {
                 const key = (event.key || '').toLowerCase();
                 const target = event.target;
                 const tagName = target && target.tagName ? target.tagName.toLowerCase() : '';
                 const isTypingField = tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable);
                 const ctrlOrCmd = event.ctrlKey || event.metaKey;
 
-                // Ctrl/Cmd + Shift + Enter: guardar, copiar y limpiar.
+                // Ctrl/Cmd + Shift + Enter: copiar desde navegador, guardar y limpiar.
+                // Funciona también dentro del comentario editable.
                 if (ctrlOrCmd && event.shiftKey && event.key === 'Enter') {
                     event.preventDefault();
-                    clickButton('Guardar y limpiar');
+                    copyThenClick('Guardar y limpiar');
                     return;
                 }
 
-                // Ctrl/Cmd + Enter: guardar y copiar. Funciona también dentro del comentario editable.
+                // Ctrl/Cmd + Enter: copiar desde navegador y guardar.
+                // Funciona también dentro del comentario editable.
                 if (ctrlOrCmd && !event.shiftKey && event.key === 'Enter') {
                     event.preventDefault();
-                    clickButton('Guardar');
+                    copyThenClick('Guardar');
                     return;
                 }
 
-                // Enter normal: guardar, copiar y limpiar solo si NO estás escribiendo en un campo.
+                // Enter normal: copiar, guardar y limpiar solo si NO estás escribiendo en un campo.
                 if (!ctrlOrCmd && !event.shiftKey && !event.altKey && event.key === 'Enter' && !isTypingField) {
                     event.preventDefault();
-                    clickButton('Guardar y limpiar');
+                    copyThenClick('Guardar y limpiar');
                     return;
                 }
 
@@ -1115,7 +1202,13 @@ def render_keyboard_shortcuts():
                     clickButton('Limpiar selección');
                     return;
                 }
-            }, true);
+            };
+
+            parentDocument.addEventListener(
+                'keydown',
+                parentWindow.__ojWarrantyKeyboardShortcutsHandler,
+                true
+            );
         })();
         </script>
         """,
@@ -1131,8 +1224,8 @@ def render_generador_comentarios():
     st.title("📊 Estadísticas de garantías devueltas")
     st.caption("Registra los motivos de garantías devueltas, revisa el comentario, cópialo al portapapeles y guárdalo en los CSV.")
     st.caption(
-        "Atajos: Enter = guardar y limpiar cuando no estás escribiendo · "
-        "Ctrl + Enter = guardar · Ctrl + Shift + Enter = guardar y limpiar · "
+        "Atajos: Enter = copiar + guardar y limpiar cuando no estás escribiendo · "
+        "Ctrl + Enter = copiar + guardar · Ctrl + Shift + Enter = copiar + guardar y limpiar · "
         "Alt + N = nº reclamación · Alt + B = buscador · Alt + L = limpiar selección"
     )
 

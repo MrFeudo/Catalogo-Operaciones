@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 
 import csv
 import io
@@ -1555,117 +1555,20 @@ def render_keyboard_shortcuts():
 # =========================================================================
 # PANTALLA 2 - GENERADOR DE COMENTARIOS
 # =========================================================================
-def render_generador_compact_css():
-    """CSS ligero para que esta pestaña se sienta más herramienta de escritorio que dashboard."""
-    st.markdown(
-        """
-        <style>
-            /* Compacta solo de forma razonable la pantalla: menos aire, más herramienta. */
-            .block-container {
-                padding-top: 1.1rem !important;
-                padding-bottom: 1rem !important;
-            }
-            div[data-testid="stVerticalBlock"] { gap: 0.45rem; }
-            div[data-testid="stHorizontalBlock"] { gap: 0.7rem; }
-            h1 { font-size: 1.45rem !important; margin-bottom: 0.2rem !important; }
-            h2, h3 { margin-top: 0.25rem !important; margin-bottom: 0.25rem !important; }
-            h4 { font-size: 0.92rem !important; margin-top: 0.2rem !important; margin-bottom: 0.25rem !important; }
-            label, [data-testid="stMarkdownContainer"] p { line-height: 1.15; }
-            div[data-testid="stCheckbox"] { margin-bottom: -0.22rem; }
-            div[data-testid="stCheckbox"] label { align-items: flex-start; }
-            div[data-testid="stCheckbox"] p { font-size: 0.82rem !important; line-height: 1.12 !important; }
-            div[data-testid="stTextInput"] { margin-bottom: -0.25rem; }
-            div[data-testid="stTextArea"] textarea {
-                font-size: 0.92rem !important;
-                line-height: 1.28 !important;
-            }
-            div[data-testid="stButton"] button {
-                padding-top: 0.35rem !important;
-                padding-bottom: 0.35rem !important;
-                min-height: 2.05rem !important;
-            }
-            .oj-compact-title {
-                display:flex;
-                align-items:center;
-                justify-content:space-between;
-                gap:12px;
-                padding: 7px 10px;
-                border:1px solid #e5e7eb;
-                border-radius:10px;
-                background:#fafafa;
-                margin-bottom: 6px;
-            }
-            .oj-compact-title-main {
-                font-size: 1.08rem;
-                font-weight: 750;
-                color:#111827;
-            }
-            .oj-compact-title-sub {
-                font-size: 0.78rem;
-                color:#6b7280;
-                margin-top:2px;
-            }
-            .oj-shortcuts-pill {
-                font-size:0.72rem;
-                color:#374151;
-                background:#eef2ff;
-                border:1px solid #c7d2fe;
-                padding:4px 8px;
-                border-radius:999px;
-                white-space:nowrap;
-            }
-            .oj-claim-warning {
-                background:#fff7ed;
-                border:1px solid #fed7aa;
-                color:#9a3412;
-                border-radius:8px;
-                padding:6px 9px;
-                font-size:0.82rem;
-                margin: 2px 0 6px 0;
-            }
-            .oj-claim-ok {
-                background:#ecfdf5;
-                border:1px solid #bbf7d0;
-                color:#166534;
-                border-radius:8px;
-                padding:6px 9px;
-                font-size:0.82rem;
-                margin: 2px 0 6px 0;
-            }
-            .oj-mini-panel {
-                border:1px solid #e5e7eb;
-                border-radius:10px;
-                padding:8px 10px;
-                background:#ffffff;
-                margin-bottom: 8px;
-            }
-            .oj-panel-title {
-                font-weight:700;
-                font-size:0.88rem;
-                color:#111827;
-                margin-bottom:4px;
-            }
-            .oj-muted {
-                color:#6b7280;
-                font-size:0.78rem;
-            }
-            .oj-category-rule {
-                height:1px;
-                background:#e5e7eb;
-                margin: 4px 0 6px 0;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def render_generador_comentarios():
     render_keyboard_shortcuts()
-    render_generador_compact_css()
+
+    st.title("📊 Estadísticas de garantías devueltas")
+    st.caption("Registra los motivos de garantías devueltas, revisa el comentario, cópialo al portapapeles y guárdalo en los CSV.")
+    st.caption(
+        "Atajos: Enter = copiar + guardar y limpiar cuando no estás escribiendo · "
+        "Ctrl + Enter = copiar + guardar · Ctrl + Shift + Enter = copiar + guardar y limpiar · "
+        "Alt + N = nº reclamación · Alt + B = buscador · Alt + L = limpiar selección"
+    )
 
     # Streamlit mantiene estado propio para cada checkbox y para el text_area.
-    # Las limpiezas deben aplicarse ANTES de pintar esos widgets.
+    # Las limpiezas deben aplicarse ANTES de pintar esos widgets, si no,
+    # la selección visual puede quedarse marcada aunque borremos selected_keys.
     if st.session_state.get("pending_clear_selection", False):
         st.session_state.selected_keys = []
         st.session_state.previous_selected_keys = []
@@ -1677,44 +1580,26 @@ def render_generador_comentarios():
         st.session_state.final_comment_area = ""
         st.session_state.pending_clear_comment_area = False
 
-    st.markdown(
-        """
-        <div class="oj-compact-title">
-            <div>
-                <div class="oj-compact-title-main">📊 Estadísticas de garantías devueltas</div>
-                <div class="oj-compact-title-sub">Modo compacto: motivo → comentario → guardar/copiar.</div>
-            </div>
-            <div class="oj-shortcuts-pill">Enter · Ctrl+Enter · Ctrl+Shift+Enter · Alt+N/B/L</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     if st.session_state.last_saved_comment:
-        with st.container():
-            st.success("✅ Último comentario guardado en CSVs.")
-            render_browser_copy_button(
-                st.session_state.last_saved_comment,
-                button_text="📋 Copiar último comentario",
-                key="copy_last_saved_comment"
-            )
-            hide_col, view_col = st.columns([1, 2])
-            with hide_col:
-                if st.button("Ocultar último", key="hide_last_saved_comment", use_container_width=True):
-                    st.session_state.last_saved_comment = ""
-                    st.rerun()
-            with view_col:
-                with st.expander("Ver texto del último comentario", expanded=False):
-                    st.code(st.session_state.last_saved_comment, language=None)
+        st.success("✅ Último comentario guardado en CSVs. Cópialo con el botón de navegador de abajo.")
+        render_browser_copy_button(
+            st.session_state.last_saved_comment,
+            button_text="📋 Copiar último comentario guardado",
+            key="copy_last_saved_comment"
+        )
+        with st.expander("Ver último comentario guardado", expanded=False):
+            st.code(st.session_state.last_saved_comment, language=None)
+        if st.button("Ocultar último comentario guardado", key="hide_last_saved_comment"):
+            st.session_state.last_saved_comment = ""
+            st.rerun()
 
     usage_stats = load_usage_stats()
     rank_map = get_usage_rank_map(usage_stats)
 
-    # Barra superior compacta.
-    col_c1, col_c2, col_c3, col_c4 = st.columns([1.35, 1.75, 0.78, 0.78])
+    col_c1, col_c2, col_c3 = st.columns([1.5, 2, 1.2])
     with col_c1:
         st.session_state.claim_val = st.text_input(
-            "Nº reclamación / garantía",
+            "Nº reclamación / garantía:",
             value=st.session_state.claim_val,
             placeholder="Ej: CO202608310001",
             help="Rellénalo antes de guardar si quieres poder cruzar después el registro con el DMS."
@@ -1722,80 +1607,68 @@ def render_generador_comentarios():
 
     with col_c2:
         search_query = st.text_input(
-            "Buscar",
+            "Buscar:",
             placeholder="Filtrar por ID, motivo, categoría o texto..."
         ).strip()
 
     with col_c3:
-        highlight_top = st.checkbox("TOP", value=False, help="Resaltar TOP 1-5 en la lista")
+        highlight_top = st.checkbox("Resaltar TOP en lista", value=False)
+        warn_missing_claim = st.checkbox("Avisar si falta claim", value=True)
 
-    with col_c4:
-        warn_missing_claim = st.checkbox("Aviso claim", value=True, help="Avisar si intentas guardar sin nº de reclamación")
-
+    # Disclaimer fijo: la claim es opcional, pero es la única clave sólida para cruzar con DMS.
     if not st.session_state.claim_val:
-        st.markdown(
-            """
-            <div class="oj-claim-warning">
-                ⚠️ <b>Antes de guardar:</b> si quieres cruzar con DMS, informa el nº de reclamación/garantía. Si lo dejas vacío, se guardará como <code>NO INFORMADO</code>.
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.warning(
+            "⚠️ **Antes de guardar:** revisa si quieres informar el **número de reclamación/garantía**. "
+            "Si lo dejas vacío, el registro se guardará como `NO INFORMADO` y luego no podrás cruzarlo de forma fiable con el DMS."
         )
     else:
-        st.markdown(
-            f"""
-            <div class="oj-claim-ok">
-                ✅ Reclamación informada: <code>{_escape_html(st.session_state.claim_val)}</code>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.success(f"✅ Reclamación informada para el registro: `{st.session_state.claim_val}`")
+
+    st.markdown("---")
 
     query_norm = normalize_text(search_query)
+    grid_cols = st.columns(3)
 
-    # Layout extremo: razones a la izquierda, comentario/acciones a la derecha.
-    motivos_col, panel_col = st.columns([2.45, 1.05], gap="medium")
+    for idx, category in enumerate(CATEGORY_ORDER):
+        target_col = grid_cols[idx % 3]
+        cat_items = []
+        for key, item in COMMENTS.items():
+            if item["category"] == category:
+                searchable = normalize_text(f"{key} {item['category']} {item['label']} {item['text']}")
+                if not query_norm or query_norm in searchable:
+                    cat_items.append((key, item))
 
-    with motivos_col:
-        st.markdown('<div class="oj-mini-panel"><div class="oj-panel-title">Motivos</div><div class="oj-muted">Marca una o varias razones. El comentario se genera automáticamente.</div></div>', unsafe_allow_html=True)
+        if cat_items:
+            with target_col:
+                st.markdown(f"#### {category}")
+                for key, item in cat_items:
+                    uses = usage_stats.get(key, 0)
+                    rank = rank_map.get(key)
 
-        grid_cols = st.columns(3)
-        for idx, category in enumerate(CATEGORY_ORDER):
-            target_col = grid_cols[idx % 3]
-            cat_items = []
-            for key, item in COMMENTS.items():
-                if item["category"] == category:
-                    searchable = normalize_text(f"{key} {item['category']} {item['label']} {item['text']}")
-                    if not query_norm or query_norm in searchable:
-                        cat_items.append((key, item))
+                    usage_text = f"{uses} usos"
+                    if highlight_top and rank is not None:
+                        if rank <= TOP_RED_LIMIT:
+                            usage_text += f" 🔥 TOP {rank}"
+                        elif rank <= TOP_AMBER_LIMIT:
+                            usage_text += f" ⚠️ TOP {rank}"
 
-            if cat_items:
-                with target_col:
-                    st.markdown(f"#### {category}")
-                    st.markdown('<div class="oj-category-rule"></div>', unsafe_allow_html=True)
-                    for key, item in cat_items:
-                        uses = usage_stats.get(key, 0)
-                        rank = rank_map.get(key)
+                    label_text = f"**{item['label']}**  \n:gray[({usage_text})]"
+                    is_checked = key in st.session_state.selected_keys
 
-                        usage_text = f"{int(uses)} usos"
-                        if highlight_top and rank is not None:
-                            if rank <= TOP_RED_LIMIT:
-                                usage_text += f" 🔥 TOP {rank}"
-                            elif rank <= TOP_AMBER_LIMIT:
-                                usage_text += f" ⚠️ TOP {rank}"
+                    checked = st.checkbox(label_text, value=is_checked, key=f"chk_{key}")
+                    if checked and key not in st.session_state.selected_keys:
+                        st.session_state.selected_keys.append(key)
+                    elif not checked and key in st.session_state.selected_keys:
+                        st.session_state.selected_keys.remove(key)
 
-                        label_text = f"**{item['label']}**  \n:gray[({usage_text})]"
-                        is_checked = key in st.session_state.selected_keys
-
-                        checked = st.checkbox(label_text, value=is_checked, key=f"chk_{key}")
-                        if checked and key not in st.session_state.selected_keys:
-                            st.session_state.selected_keys.append(key)
-                        elif not checked and key in st.session_state.selected_keys:
-                            st.session_state.selected_keys.remove(key)
+    st.markdown("---")
 
     ordered_keys = [key for key in COMMENTS if key in st.session_state.selected_keys]
     base_comment = " ".join(COMMENTS[key]["text"] for key in ordered_keys).strip()
 
+    # Streamlit mantiene el valor de un text_area con key aunque cambie el parámetro value.
+    # Por eso sincronizamos manualmente el comentario editable cuando cambia la selección
+    # de motivos, replicando el comportamiento de la app Tkinter original.
     previous_ordered_keys = [key for key in COMMENTS if key in st.session_state.previous_selected_keys]
     selection_changed = ordered_keys != previous_ordered_keys
 
@@ -1803,90 +1676,78 @@ def render_generador_comentarios():
         st.session_state.final_comment_area = base_comment
         st.session_state.previous_selected_keys = ordered_keys.copy()
 
-    with panel_col:
-        st.markdown(
-            f"""
-            <div class="oj-mini-panel">
-                <div class="oj-panel-title">Comentario</div>
-                <div class="oj-muted">{len(ordered_keys)} razón/razones seleccionadas.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.subheader("Comentario generado editable:")
+    final_comment = st.text_area(
+        "Revisa o modifica el texto antes de copiar:",
+        height=110,
+        key="final_comment_area"
+    ).strip()
 
-        final_comment = st.text_area(
-            "Editar antes de copiar",
-            height=230,
-            key="final_comment_area",
-            label_visibility="collapsed",
-            placeholder="Marca una razón o escribe un comentario manual..."
-        ).strip()
+    render_browser_copy_button(
+        final_comment,
+        button_text="📋 Copiar comentario al portapapeles",
+        key="copy_current_comment"
+    )
 
-        render_browser_copy_button(
-            final_comment,
-            button_text="📋 Copiar comentario",
-            key="copy_current_comment"
-        )
+    def procesar_copia():
+        if not final_comment.strip():
+            st.warning("⚠️ Sin comentario: No hay ningún comentario para copiar.")
+            return False
 
-        def procesar_copia():
-            if not final_comment.strip():
-                st.warning("⚠️ Sin comentario: no hay ningún comentario para copiar.")
-                return False
+        if warn_missing_claim and not st.session_state.claim_val and not st.session_state.confirm_missing_claim:
+            st.session_state.confirm_missing_claim = True
+            st.error(
+                "🚨 **No has informado el número de reclamación/garantía.** "
+                "Si guardas así, se registrará como `NO INFORMADO` y no servirá para cruce claim a claim con DMS. "
+                "Rellena el campo de arriba o vuelve a pulsar el botón de guardar para confirmar que quieres guardarlo sin claim."
+            )
+            return False
 
-            if warn_missing_claim and not st.session_state.claim_val and not st.session_state.confirm_missing_claim:
-                st.session_state.confirm_missing_claim = True
-                st.error(
-                    "🚨 No has informado el número de reclamación/garantía. "
-                    "Rellena el campo o vuelve a pulsar Guardar para confirmar sin claim."
+        log_generated_comment(ordered_keys, final_comment, base_comment, st.session_state.claim_val)
+
+        if ordered_keys:
+            update_usage_stats(ordered_keys)
+
+        st.session_state.confirm_missing_claim = False
+        return True
+
+    col_b1, col_b2, col_b3, col_b4 = st.columns([1.35, 1.45, 1.2, 1.6])
+
+    with col_b1:
+        if st.button("💾 Guardar", type="primary", use_container_width=True):
+            if procesar_copia():
+                st.session_state.last_saved_comment = final_comment
+                st.code(final_comment, language=None)
+                st.success("✅ Comentario registrado en CSVs. Cópialo con el botón de navegador.")
+                render_browser_copy_button(
+                    final_comment,
+                    button_text="📋 Copiar ahora",
+                    key="copy_after_save"
                 )
-                return False
 
-            log_generated_comment(ordered_keys, final_comment, base_comment, st.session_state.claim_val)
-
-            if ordered_keys:
-                update_usage_stats(ordered_keys)
-
-            st.session_state.confirm_missing_claim = False
-            return True
-
-        b1, b2 = st.columns(2)
-        with b1:
-            if st.button("💾 Guardar", type="primary", use_container_width=True):
-                if procesar_copia():
-                    st.session_state.last_saved_comment = final_comment
-                    st.success("✅ Guardado en CSVs.")
-                    render_browser_copy_button(
-                        final_comment,
-                        button_text="📋 Copiar ahora",
-                        key="copy_after_save"
-                    )
-
-        with b2:
-            if st.button("🧹 Guardar+limpiar", use_container_width=True):
-                if procesar_copia():
-                    st.session_state.last_saved_comment = final_comment
-                    st.session_state.claim_val = ""
-                    st.session_state.pending_clear_selection = True
-                    st.session_state.pending_clear_comment_area = True
-                    st.rerun()
-
-        b3, b4 = st.columns(2)
-        with b3:
-            if st.button("🗑️ Limpiar", use_container_width=True):
-                st.session_state.confirm_missing_claim = False
+    with col_b2:
+        if st.button("🧹 Guardar y limpiar", use_container_width=True):
+            if procesar_copia():
+                st.session_state.last_saved_comment = final_comment
+                st.session_state.claim_val = ""
                 st.session_state.pending_clear_selection = True
                 st.session_state.pending_clear_comment_area = True
                 st.rerun()
 
-        with b4:
-            if st.button("🧽 Claim", use_container_width=True):
-                st.session_state.claim_val = ""
-                st.rerun()
+    with col_b3:
+        if st.button("🗑️ Limpiar selección", use_container_width=True):
+            st.session_state.confirm_missing_claim = False
+            st.session_state.pending_clear_selection = True
+            st.session_state.pending_clear_comment_area = True
+            st.rerun()
 
-        with st.expander("Atajos", expanded=False):
-            st.caption("Enter = copiar + guardar y limpiar si no escribes · Ctrl+Enter = copiar + guardar · Ctrl+Shift+Enter = copiar + guardar y limpiar · Alt+N = claim · Alt+B = buscar · Alt+L = limpiar")
+    with col_b4:
+        if st.button("🧽 Limpiar claim", use_container_width=True):
+            st.session_state.claim_val = ""
+            st.rerun()
 
-    with st.expander("📊 Estadísticas y análisis de motivos", expanded=False):
+    st.markdown("---")
+    with st.expander("📊 Ver Estadísticas y Análisis de Motivos", expanded=False):
         df_stats = get_stats_dataframe(usage_stats)
         df_cat = get_category_stats_dataframe(usage_stats)
 
@@ -1902,7 +1763,7 @@ def render_generador_comentarios():
             "No se incluyen motivos con 0 usos. El ranking respeta empates."
         )
 
-        tab_tbl, tab_bars, tab_pie = st.tabs(["Tabla", "Barras", "Pie"])
+        tab_tbl, tab_bars, tab_pie = st.tabs(["Tabla de Ranking", "Barras por Motivo", "Pie por Categoría"])
 
         with tab_tbl:
             display_df = df_stats.copy()

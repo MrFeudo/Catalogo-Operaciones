@@ -15,11 +15,6 @@ import streamlit.components.v1 as components
 from PIL import Image
 
 try:
-    import pyperclip
-except Exception:
-    pyperclip = None
-
-try:
     from google import genai
     from google.genai import types
 except Exception:
@@ -65,6 +60,7 @@ DEFAULT_SESSION_VALUES = {
     "previous_selected_keys": [],
     "claim_val": "",
     "final_comment_area": "",
+    "last_saved_comment": "",
     "confirm_missing_claim": False,
     "tokens_totales_input": 0,
     "tokens_totales_output": 0,
@@ -953,21 +949,16 @@ def render_tiempos_taller(txt_local):
 
 def copy_to_system_clipboard(text):
     """
-    Intenta copiar usando el portapapeles del sistema.
+    Copia automática desactivada en Streamlit.
 
-    En Streamlit local suele funcionar porque el servidor corre en el mismo PC.
-    En Streamlit Cloud o servidores remotos puede fallar; para esos casos queda
-    el botón HTML con navigator.clipboard.
+    En una app web, Python corre en el servidor y no debe intentar acceder al
+    portapapeles del usuario. La copia real se hace con el botón de navegador
+    basado en navigator.clipboard dentro de render_browser_copy_button().
     """
-    if pyperclip is None:
-        return False, "pyperclip no está instalado."
-
-    try:
-        pyperclip.copy(text)
-        return True, "Comentario copiado al portapapeles. Ya puedes pegarlo con Ctrl + V."
-    except Exception as exc:
-        return False, f"No se pudo copiar automáticamente al portapapeles: {exc}"
-
+    return False, (
+        "La copia automática desde Python está desactivada. "
+        "Usa el botón de navegador 'Copiar comentario al portapapeles'."
+    )
 
 def render_browser_copy_button(text, button_text="📋 Copiar al portapapeles", key="copy_button"):
     """
@@ -1019,12 +1010,142 @@ def render_browser_copy_button(text, button_text="📋 Copiar al portapapeles", 
         height=52,
     )
 
+
+
+def render_keyboard_shortcuts():
+    """
+    Atajos de teclado para la pantalla de estadísticas de garantías devueltas.
+
+    Streamlit no trae atajos globales de serie, así que se inyecta un pequeño
+    script en el navegador. El script busca los botones por su texto visible y
+    dispara el click correspondiente. Está pensado para uso en local/repositorio
+    propio, manteniendo el flujo rápido de la app Tkinter original.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const parentWindow = window.parent;
+            const parentDocument = parentWindow.document;
+
+            // Evita instalar varios listeners tras cada rerun de Streamlit.
+            if (parentWindow.__ojWarrantyKeyboardShortcutsInstalled) {
+                return;
+            }
+            parentWindow.__ojWarrantyKeyboardShortcutsInstalled = true;
+
+            function buttonByText(text) {
+                const buttons = Array.from(parentDocument.querySelectorAll('button'));
+                return buttons.find(function (button) {
+                    return (button.innerText || '').includes(text);
+                });
+            }
+
+            function clickButton(text) {
+                const button = buttonByText(text);
+                if (button) {
+                    button.click();
+                    return true;
+                }
+                return false;
+            }
+
+            function focusInputByPlaceholder(partialPlaceholder) {
+                const inputs = Array.from(parentDocument.querySelectorAll('input, textarea'));
+                const input = inputs.find(function (element) {
+                    return ((element.placeholder || '').includes(partialPlaceholder));
+                });
+                if (input) {
+                    input.focus();
+                    if (typeof input.select === 'function') {
+                        input.select();
+                    }
+                    return true;
+                }
+                return false;
+            }
+
+            parentDocument.addEventListener('keydown', function (event) {
+                const key = (event.key || '').toLowerCase();
+                const target = event.target;
+                const tagName = target && target.tagName ? target.tagName.toLowerCase() : '';
+                const isTypingField = tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable);
+                const ctrlOrCmd = event.ctrlKey || event.metaKey;
+
+                // Ctrl/Cmd + Shift + Enter: guardar, copiar y limpiar.
+                if (ctrlOrCmd && event.shiftKey && event.key === 'Enter') {
+                    event.preventDefault();
+                    clickButton('Guardar y limpiar');
+                    return;
+                }
+
+                // Ctrl/Cmd + Enter: guardar y copiar. Funciona también dentro del comentario editable.
+                if (ctrlOrCmd && !event.shiftKey && event.key === 'Enter') {
+                    event.preventDefault();
+                    clickButton('Guardar');
+                    return;
+                }
+
+                // Enter normal: guardar, copiar y limpiar solo si NO estás escribiendo en un campo.
+                if (!ctrlOrCmd && !event.shiftKey && !event.altKey && event.key === 'Enter' && !isTypingField) {
+                    event.preventDefault();
+                    clickButton('Guardar y limpiar');
+                    return;
+                }
+
+                // Alt + N: foco rápido en número de reclamación/garantía.
+                if (event.altKey && key === 'n') {
+                    event.preventDefault();
+                    focusInputByPlaceholder('CO202608310001');
+                    return;
+                }
+
+                // Alt + B: foco rápido en buscador.
+                if (event.altKey && key === 'b') {
+                    event.preventDefault();
+                    focusInputByPlaceholder('Filtrar por ID');
+                    return;
+                }
+
+                // Alt + L: limpiar selección.
+                if (event.altKey && key === 'l') {
+                    event.preventDefault();
+                    clickButton('Limpiar selección');
+                    return;
+                }
+            }, true);
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
 # =========================================================================
 # PANTALLA 2 - GENERADOR DE COMENTARIOS
 # =========================================================================
 def render_generador_comentarios():
+    render_keyboard_shortcuts()
+
     st.title("📊 Estadísticas de garantías devueltas")
     st.caption("Registra los motivos de garantías devueltas, revisa el comentario, cópialo al portapapeles y guárdalo en los CSV.")
+    st.caption(
+        "Atajos: Enter = guardar y limpiar cuando no estás escribiendo · "
+        "Ctrl + Enter = guardar · Ctrl + Shift + Enter = guardar y limpiar · "
+        "Alt + N = nº reclamación · Alt + B = buscador · Alt + L = limpiar selección"
+    )
+
+    if st.session_state.last_saved_comment:
+        st.success("✅ Último comentario guardado en CSVs. Cópialo con el botón de navegador de abajo.")
+        render_browser_copy_button(
+            st.session_state.last_saved_comment,
+            button_text="📋 Copiar último comentario guardado",
+            key="copy_last_saved_comment"
+        )
+        with st.expander("Ver último comentario guardado", expanded=False):
+            st.code(st.session_state.last_saved_comment, language=None)
+        if st.button("Ocultar último comentario guardado", key="hide_last_saved_comment"):
+            st.session_state.last_saved_comment = ""
+            st.rerun()
 
     usage_stats = load_usage_stats()
     rank_map = get_usage_rank_map(usage_stats)
@@ -1147,41 +1268,26 @@ def render_generador_comentarios():
     col_b1, col_b2, col_b3, col_b4 = st.columns([1.35, 1.45, 1.2, 1.6])
 
     with col_b1:
-        if st.button("📋 Guardar y copiar", type="primary", use_container_width=True):
+        if st.button("💾 Guardar", type="primary", use_container_width=True):
             if procesar_copia():
-                copied, copy_message = copy_to_system_clipboard(final_comment)
+                st.session_state.last_saved_comment = final_comment
                 st.code(final_comment, language=None)
-                if copied:
-                    st.success(f"✅ Comentario registrado en CSVs. {copy_message}")
-                else:
-                    st.warning(
-                        "✅ Comentario registrado en CSVs, pero no se pudo copiar automáticamente. "
-                        "Usa el botón 'Copiar comentario al portapapeles' de arriba."
-                    )
-                    st.caption(copy_message)
-                    render_browser_copy_button(
-                        final_comment,
-                        button_text="📋 Copiar ahora",
-                        key="copy_after_save"
-                    )
+                st.success("✅ Comentario registrado en CSVs. Cópialo con el botón de navegador.")
+                render_browser_copy_button(
+                    final_comment,
+                    button_text="📋 Copiar ahora",
+                    key="copy_after_save"
+                )
 
     with col_b2:
-        if st.button("🧹 Guardar, copiar y limpiar", use_container_width=True):
+        if st.button("🧹 Guardar y limpiar", use_container_width=True):
             if procesar_copia():
-                copied, copy_message = copy_to_system_clipboard(final_comment)
-                if copied:
-                    st.session_state.selected_keys = []
-                    st.session_state.previous_selected_keys = []
-                    st.session_state.claim_val = ""
-                    st.session_state.final_comment_area = ""
-                    st.success(f"✅ Comentario registrado y copiado. {copy_message}")
-                    st.rerun()
-                else:
-                    st.warning(
-                        "✅ Comentario registrado en CSVs, pero no se pudo copiar automáticamente. "
-                        "No limpio la pantalla para que no pierdas el texto. Usa el botón de copia de arriba."
-                    )
-                    st.caption(copy_message)
+                st.session_state.last_saved_comment = final_comment
+                st.session_state.selected_keys = []
+                st.session_state.previous_selected_keys = []
+                st.session_state.claim_val = ""
+                st.session_state.final_comment_area = ""
+                st.rerun()
 
     with col_b3:
         if st.button("🗑️ Limpiar selección", use_container_width=True):

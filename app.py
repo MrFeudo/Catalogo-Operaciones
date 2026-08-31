@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
+
+try:
+    import pyperclip
+except Exception:
+    pyperclip = None
 
 try:
     from google import genai
@@ -77,7 +83,7 @@ IDIOMAS = {
         "menu_titulo": "### 🗺️ Menú de Navegación",
         "menu_radio": "Selecciona una herramienta:",
         "menu_taller": "📋 Tiempos de Taller",
-        "menu_generador": "💬 Generador de Comentarios",
+        "menu_generador": "📊 Estadísticas de garantías devueltas",
         "menu_solicitar": "📝 Solicitar Operación",
         "menu_consultorio": "🧠 Consultorio Técnico IA",
         "pass_titulo": "🔐 Acceso Red de Dealers",
@@ -114,7 +120,7 @@ IDIOMAS = {
         "menu_titulo": "### 🗺️ Navigation Menu",
         "menu_radio": "Select a tool:",
         "menu_taller": "📋 Workshop Times",
-        "menu_generador": "💬 Comment Generator",
+        "menu_generador": "📊 Returned Warranty Statistics",
         "menu_solicitar": "📝 Request Operation",
         "menu_consultorio": "🧠 Technical AI Consultant",
         "pass_titulo": "🔐 Dealer Network Access",
@@ -151,7 +157,7 @@ IDIOMAS = {
         "menu_titulo": "### 🗺️ 导航菜单",
         "menu_radio": "选择工具:",
         "menu_taller": "📋 车间工时",
-        "menu_generador": "💬 保修评论生成器",
+        "menu_generador": "📊 退回保修统计",
         "menu_solicitar": "📝 请求操作",
         "menu_consultorio": "🧠 技术 AI 咨询",
         "pass_titulo": "🔐 经销商网络访问",
@@ -941,12 +947,82 @@ def render_tiempos_taller(txt_local):
         st.error(txt_local["err_taller"].format(exc))
 
 
+
+
+def copy_to_system_clipboard(text):
+    """
+    Intenta copiar usando el portapapeles del sistema.
+
+    En Streamlit local suele funcionar porque el servidor corre en el mismo PC.
+    En Streamlit Cloud o servidores remotos puede fallar; para esos casos queda
+    el botón HTML con navigator.clipboard.
+    """
+    if pyperclip is None:
+        return False, "pyperclip no está instalado."
+
+    try:
+        pyperclip.copy(text)
+        return True, "Comentario copiado al portapapeles. Ya puedes pegarlo con Ctrl + V."
+    except Exception as exc:
+        return False, f"No se pudo copiar automáticamente al portapapeles: {exc}"
+
+
+def render_browser_copy_button(text, button_text="📋 Copiar al portapapeles", key="copy_button"):
+    """
+    Botón real de copia en navegador para Streamlit.
+
+    Usa navigator.clipboard.writeText. Funciona especialmente bien en localhost
+    y en conexiones HTTPS. No guarda logs: solo copia el texto visible.
+    """
+    safe_text = json.dumps(text or "")
+    safe_button_text = json.dumps(button_text)
+    safe_key = re.sub(r"[^a-zA-Z0-9_]", "_", str(key))
+
+    components.html(
+        f"""
+        <div style="display:flex; align-items:center; gap:10px; margin: 2px 0 8px 0;">
+            <button id="btn_{safe_key}" type="button" style="
+                background-color:#f0f2f6;
+                border:1px solid #d0d3da;
+                border-radius:6px;
+                padding:8px 14px;
+                cursor:pointer;
+                font-family:Arial, sans-serif;
+                font-size:14px;
+            "></button>
+            <span id="status_{safe_key}" style="font-family:Arial, sans-serif; font-size:13px; color:#2e7d32;"></span>
+        </div>
+        <script>
+            const textToCopy_{safe_key} = {safe_text};
+            const btn_{safe_key} = document.getElementById("btn_{safe_key}");
+            const status_{safe_key} = document.getElementById("status_{safe_key}");
+            btn_{safe_key}.innerText = {safe_button_text};
+            btn_{safe_key}.onclick = async function() {{
+                if (!textToCopy_{safe_key}) {{
+                    status_{safe_key}.style.color = "#b00020";
+                    status_{safe_key}.innerText = "No hay comentario para copiar.";
+                    return;
+                }}
+                try {{
+                    await navigator.clipboard.writeText(textToCopy_{safe_key});
+                    status_{safe_key}.style.color = "#2e7d32";
+                    status_{safe_key}.innerText = "Copiado. Pega con Ctrl + V.";
+                }} catch (err) {{
+                    status_{safe_key}.style.color = "#b00020";
+                    status_{safe_key}.innerText = "No se pudo copiar. Selecciona el texto manualmente.";
+                }}
+            }};
+        </script>
+        """,
+        height=52,
+    )
+
 # =========================================================================
 # PANTALLA 2 - GENERADOR DE COMENTARIOS
 # =========================================================================
 def render_generador_comentarios():
-    st.title("💬 Generador de comentarios de garantía")
-    st.caption("Marca las razones, revisa o edita el comentario y guárdalo en los CSV.")
+    st.title("📊 Estadísticas de garantías devueltas")
+    st.caption("Registra los motivos de garantías devueltas, revisa el comentario, cópialo al portapapeles y guárdalo en los CSV.")
 
     usage_stats = load_usage_stats()
     rank_map = get_usage_rank_map(usage_stats)
@@ -1019,6 +1095,12 @@ def render_generador_comentarios():
         key="final_comment_area"
     )
 
+    render_browser_copy_button(
+        final_comment,
+        button_text="📋 Copiar comentario al portapapeles",
+        key="copy_current_comment"
+    )
+
     def procesar_copia():
         if not final_comment.strip():
             st.warning("⚠️ Sin comentario: No hay ningún comentario para copiar.")
@@ -1037,21 +1119,43 @@ def render_generador_comentarios():
         st.session_state.confirm_missing_claim = False
         return True
 
-    col_b1, col_b2, col_b3, col_b4 = st.columns([1.2, 1.2, 1.2, 2])
+    col_b1, col_b2, col_b3, col_b4 = st.columns([1.35, 1.45, 1.2, 1.6])
 
     with col_b1:
-        if st.button("📋 Guardar", type="primary", use_container_width=True):
+        if st.button("📋 Guardar y copiar", type="primary", use_container_width=True):
             if procesar_copia():
+                copied, copy_message = copy_to_system_clipboard(final_comment)
                 st.code(final_comment, language=None)
-                st.success("✅ Comentario registrado en CSVs. Copia el texto mostrado arriba para pegarlo en DMS.")
+                if copied:
+                    st.success(f"✅ Comentario registrado en CSVs. {copy_message}")
+                else:
+                    st.warning(
+                        "✅ Comentario registrado en CSVs, pero no se pudo copiar automáticamente. "
+                        "Usa el botón 'Copiar comentario al portapapeles' de arriba."
+                    )
+                    st.caption(copy_message)
+                    render_browser_copy_button(
+                        final_comment,
+                        button_text="📋 Copiar ahora",
+                        key="copy_after_save"
+                    )
 
     with col_b2:
-        if st.button("🧹 Guardar y limpiar", use_container_width=True):
+        if st.button("🧹 Guardar, copiar y limpiar", use_container_width=True):
             if procesar_copia():
-                st.session_state.selected_keys = []
-                st.session_state.claim_val = ""
-                st.session_state.final_comment_area = ""
-                st.rerun()
+                copied, copy_message = copy_to_system_clipboard(final_comment)
+                if copied:
+                    st.session_state.selected_keys = []
+                    st.session_state.claim_val = ""
+                    st.session_state.final_comment_area = ""
+                    st.success(f"✅ Comentario registrado y copiado. {copy_message}")
+                    st.rerun()
+                else:
+                    st.warning(
+                        "✅ Comentario registrado en CSVs, pero no se pudo copiar automáticamente. "
+                        "No limpio la pantalla para que no pierdas el texto. Usa el botón de copia de arriba."
+                    )
+                    st.caption(copy_message)
 
     with col_b3:
         if st.button("🗑️ Limpiar selección", use_container_width=True):
@@ -1333,3 +1437,4 @@ if check_password(txt):
         render_solicitar_operacion(txt)
     elif opcion_menu == txt["menu_consultorio"]:
         render_consultorio_ia()
+

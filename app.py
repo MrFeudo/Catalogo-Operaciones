@@ -228,13 +228,32 @@ CATEGORY_ORDER = [
 TOP_RED_LIMIT = 3
 TOP_AMBER_LIMIT = 5
 
+CATEGORY_COLOR_PALETTES = {
+    # El primer color de cada familia es el que usa el pie chart.
+    # Las barras usan tonos diferentes dentro de la misma familia.
+    "Evidencias / documentación": [
+        "#ff7f0e", "#ff9f40", "#ffbb78", "#d95f02", "#fdb462", "#e66101",
+    ],
+    "Operaciones frecuentes": [
+        "#2ca02c", "#59b359", "#98df8a", "#1b7837", "#5aae61", "#a6dba0",
+    ],
+    "Tipo de reclamación / Cobertura": [
+        "#9467bd", "#b084cc", "#c5b0d5", "#762a83", "#9970ab", "#c2a5cf",
+    ],
+    "Costes, mano de obra y piezas": [
+        "#1f77b4", "#4f9bd3", "#aec7e8", "#2166ac", "#67a9cf", "#d1e5f0", "#08519c", "#6baed6",
+    ],
+    "Información y campos": [
+        "#d62728", "#ff6961", "#ff9896", "#b2182b", "#ef8a62", "#fddbc7",
+    ],
+    "Comentario manual": [
+        "#7f7f7f", "#9a9a9a", "#bdbdbd",
+    ],
+}
+
 CATEGORY_COLOR_MAP = {
-    "Evidencias / documentación": "#ff7f0e",
-    "Operaciones frecuentes": "#2ca02c",
-    "Tipo de reclamación / Cobertura": "#9467bd",
-    "Costes, mano de obra y piezas": "#1f77b4",
-    "Información y campos": "#d62728",
-    "Comentario manual": "#7f7f7f",
+    category: colors[0]
+    for category, colors in CATEGORY_COLOR_PALETTES.items()
 }
 
 
@@ -458,6 +477,53 @@ def get_category_stats_dataframe(usage_stats):
                 "%": (uses / total * 100) if total else 0,
             })
     return pd.DataFrame(rows).sort_values(by="Usos", ascending=False) if rows else pd.DataFrame()
+
+def get_category_color(category):
+    palette = CATEGORY_COLOR_PALETTES.get(category, CATEGORY_COLOR_PALETTES["Comentario manual"])
+    return palette[0]
+
+
+def get_reason_color(reason_id):
+    item = COMMENTS.get(str(reason_id))
+    if item is None:
+        return CATEGORY_COLOR_PALETTES["Comentario manual"][0]
+
+    category = item["category"]
+    palette = CATEGORY_COLOR_PALETTES.get(category, CATEGORY_COLOR_PALETTES["Comentario manual"])
+    keys_in_category = [
+        key for key, comment in COMMENTS.items()
+        if comment["category"] == category
+    ]
+
+    try:
+        index = keys_in_category.index(str(reason_id))
+    except ValueError:
+        index = 0
+
+    if index < len(palette):
+        return palette[index]
+
+    return palette[index % len(palette)]
+
+
+def shorten_chart_label(text, max_length=48):
+    text = str(text)
+    if len(text) <= max_length:
+        return text
+    return text[:max_length - 1] + "…"
+
+
+def add_matplotlib_value_labels(ax, values):
+    max_value = max(values) if values else 0
+    offset = max(0.08, max_value * 0.012)
+    for index, value in enumerate(values):
+        ax.text(
+            int(value) + offset,
+            index,
+            str(int(value)),
+            va="center",
+            fontsize=9,
+        )
 
 
 # =========================================================================
@@ -1493,43 +1559,58 @@ def render_generador_comentarios():
                 hide_index=True
             )
 
-        color_domain = CATEGORY_ORDER + ["Comentario manual"]
-        color_range = [CATEGORY_COLOR_MAP.get(category, "#7f7f7f") for category in color_domain]
-
         with tab_bars:
             try:
-                import altair as alt
+                import matplotlib.pyplot as plt
+                from matplotlib.ticker import MaxNLocator
+                from matplotlib.patches import Patch
 
                 bar_df = df_stats.copy()
-                bar_df["Porcentaje"] = bar_df["%"].map(lambda value: f"{value:.1f}%")
+                bar_df = bar_df.sort_values(by=["Usos", "ID"], ascending=[True, False])
 
-                bar_chart = (
-                    alt.Chart(bar_df)
-                    .mark_bar()
-                    .encode(
-                        x=alt.X("Usos:Q", title="Usos"),
-                        y=alt.Y(
-                            "Motivo:N",
-                            title="Motivo",
-                            sort=alt.EncodingSortField(field="Usos", order="descending"),
-                        ),
-                        color=alt.Color(
-                            "Categoría:N",
-                            scale=alt.Scale(domain=color_domain, range=color_range),
-                            legend=alt.Legend(title="Categoría"),
-                        ),
-                        tooltip=[
-                            alt.Tooltip("TOP:N", title="TOP"),
-                            alt.Tooltip("Motivo:N", title="Motivo"),
-                            alt.Tooltip("Categoría:N", title="Categoría"),
-                            alt.Tooltip("Usos:Q", title="Usos"),
-                            alt.Tooltip("Porcentaje:N", title="%"),
-                        ],
+                labels = [
+                    f"{row['ID']}. {shorten_chart_label(row['Motivo'], 52)}"
+                    for _, row in bar_df.iterrows()
+                ]
+                values = [int(value) for value in bar_df["Usos"].tolist()]
+                colors = [get_reason_color(reason_id) for reason_id in bar_df["ID"].tolist()]
+
+                fig_height = max(4.8, len(bar_df) * 0.42)
+                fig, ax = plt.subplots(figsize=(12.5, fig_height))
+                ax.barh(labels, values, color=colors)
+                ax.set_xlabel("Usos")
+                ax.set_ylabel("Motivo")
+                ax.set_title("Usos por motivo")
+                ax.grid(axis="x", linestyle="--", alpha=0.28)
+                ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+                max_value = max(values) if values else 0
+                ax.set_xlim(0, max_value + max(1, max_value * 0.16))
+                add_matplotlib_value_labels(ax, values)
+
+                used_categories = [
+                    category for category in CATEGORY_ORDER
+                    if category in set(bar_df["Categoría"].tolist())
+                ]
+                legend_handles = [
+                    Patch(color=get_category_color(category), label=category)
+                    for category in used_categories
+                ]
+                if legend_handles:
+                    ax.legend(
+                        handles=legend_handles,
+                        title="Categoría",
+                        loc="center left",
+                        bbox_to_anchor=(1.01, 0.5),
+                        fontsize=9,
+                        title_fontsize=9,
                     )
-                    .properties(height=max(320, len(bar_df) * 28))
-                )
 
-                st.altair_chart(bar_chart, use_container_width=True)
+                fig.subplots_adjust(left=0.34, right=0.74, top=0.88, bottom=0.12)
+                st.pyplot(fig, use_container_width=True)
+                plt.close(fig)
+
+                st.caption("Las barras usan tonos distintos dentro del color base de su categoría.")
             except Exception as exc:
                 st.warning(f"No se pudo mostrar el gráfico de barras. Muestro la tabla en su lugar. Detalle: {exc}")
                 st.dataframe(df_stats[["Motivo", "Categoría", "Usos"]], use_container_width=True, hide_index=True)
@@ -1539,32 +1620,51 @@ def render_generador_comentarios():
                 st.info("Aún no hay categorías con usos registrados.")
             else:
                 try:
-                    import altair as alt
+                    import matplotlib.pyplot as plt
 
                     pie_df = df_cat.copy()
-                    pie_df["Porcentaje"] = pie_df["%"].map(lambda value: f"{value:.1f}%")
+                    pie_df = pie_df.sort_values(by="Usos", ascending=False)
+                    values = [int(value) for value in pie_df["Usos"].tolist()]
+                    categories = pie_df["Categoría"].tolist()
+                    colors = [get_category_color(category) for category in categories]
 
-                    pie_chart = (
-                        alt.Chart(pie_df)
-                        .mark_arc(innerRadius=45)
-                        .encode(
-                            theta=alt.Theta("Usos:Q", title="Usos"),
-                            color=alt.Color(
-                                "Categoría:N",
-                                scale=alt.Scale(domain=color_domain, range=color_range),
-                                legend=alt.Legend(title="Categoría"),
-                            ),
-                            tooltip=[
-                                alt.Tooltip("Categoría:N", title="Categoría"),
-                                alt.Tooltip("Usos:Q", title="Usos"),
-                                alt.Tooltip("Porcentaje:N", title="%"),
-                            ],
-                        )
-                        .properties(height=430)
+                    fig, ax = plt.subplots(figsize=(11.5, 6.4))
+
+                    wedges, _, autotexts = ax.pie(
+                        values,
+                        startangle=90,
+                        autopct=lambda percent: f"{percent:.1f}%",
+                        pctdistance=0.70,
+                        colors=colors,
+                        textprops={"fontsize": 9},
                     )
 
-                    st.altair_chart(pie_chart, use_container_width=True)
-                    st.caption("Los colores del pie y de las barras usan la misma leyenda por categoría.")
+                    for autotext in autotexts:
+                        autotext.set_color("black")
+
+                    ax.set_title("Distribución por categoría")
+                    ax.axis("equal")
+
+                    total = sum(values)
+                    legend_labels = [
+                        f"{category}: {uses} usos ({(uses / total * 100):.1f}%)"
+                        for category, uses in zip(categories, values)
+                    ]
+                    ax.legend(
+                        wedges,
+                        legend_labels,
+                        title="Categorías",
+                        loc="center left",
+                        bbox_to_anchor=(1.02, 0.5),
+                        fontsize=9,
+                        title_fontsize=10,
+                    )
+
+                    fig.subplots_adjust(left=0.04, right=0.67, top=0.88, bottom=0.06)
+                    st.pyplot(fig, use_container_width=True)
+                    plt.close(fig)
+
+                    st.caption("Los porcentajes se muestran en el gráfico y la leyenda queda completa a la derecha.")
                 except Exception as exc:
                     st.warning(f"No se pudo mostrar el pie chart. Muestro la tabla en su lugar. Detalle: {exc}")
                     display_cat = df_cat.copy()
@@ -1787,4 +1887,3 @@ if check_password(txt):
         render_solicitar_operacion(txt)
     elif opcion_menu == txt["menu_consultorio"]:
         render_consultorio_ia()
-

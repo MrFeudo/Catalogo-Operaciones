@@ -10,7 +10,7 @@ import datetime
 from pathlib import Path
 
 import pandas as pd
-import requests  
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from PIL import Image
@@ -70,10 +70,8 @@ DEFAULT_SESSION_VALUES = {
     "tokens_totales_output": 0,
     "dinero_total_gastado": 0.0,
     "ultima_consulta_info": "Ninguna consulta.",
-    "filtro_modelo_taller": "Todos",
     "solicitar_marca": "OMODA",
-    "solicitar_modelo": "OMODA 5 (Gasolina)",
-    "vin_detectado_previo": ""
+    "solicitar_modelo": "OMODA 5 (Gasolina)"
 }
 
 for key, value in DEFAULT_SESSION_VALUES.items():
@@ -937,48 +935,47 @@ def render_tiempos_taller(txt_local):
         modelos_filtrados = [m for m in modelos_raw if any(marca in m.upper() for marca in ["OMODA", "JAECOO", "LEPAS"])]
         modelos_disponibles = [txt_local["todos"]] + sorted(list(set(modelos_filtrados)))
 
-        # Fila de Entrada de VIN y Filtros
+        # Callback para procesar el VIN cuando cambia el campo de entrada
+        def procesar_cambio_vin():
+            vin_val = st.session_state.get("vin_taller_input", "").strip().upper()
+            if len(vin_val) == 17 and not df_vines_db.empty:
+                coincidencia = df_vines_db[df_vines_db['VIN'] == vin_val]
+                if not coincidencia.empty:
+                    modelo_detectado_raw = str(coincidencia.iloc[0]['Modelo_Excel']).upper().strip()
+                    modelo_encontrado = None
+                    for mod in modelos_disponibles:
+                        if mod != txt_local["todos"] and (mod.upper() in modelo_detectado_raw or modelo_detectado_raw in mod.upper()):
+                            modelo_encontrado = mod
+                            break
+                    
+                    if modelo_encontrado:
+                        st.session_state["sb_modelo_taller"] = modelo_encontrado
+                        st.toast(f"✅ Bastidor VIN detectado: {modelo_encontrado}", icon="🚘")
+                    else:
+                        st.toast(f"⚠️ VIN registrado ({modelo_detectado_raw}), sin operaciones asociadas en el catálogo.", icon="ℹ️")
+                else:
+                    st.toast("❌ Bastidor VIN no encontrado en la base de datos.", icon="⚠️")
+
         col_vin, col1, col2, col3 = st.columns([1.5, 1.2, 1.5, 1.5])
 
         with col_vin:
-            vin_busqueda = st.text_input(
+            st.text_input(
                 "🔎 Buscar por VIN (Bastidor):", 
                 max_chars=17, 
                 placeholder="17 caracteres...",
-                key="vin_taller_input"
-            ).strip().upper()
-
-        # Detección por VIN en tiempo real
-        if len(vin_busqueda) == 17 and not df_vines_db.empty:
-            coincidencia = df_vines_db[df_vines_db['VIN'] == vin_busqueda]
-            if not coincidencia.empty:
-                modelo_detectado_raw = str(coincidencia.iloc[0]['Modelo_Excel']).upper().strip()
-                modelo_encontrado = None
-                for mod in modelos_disponibles:
-                    if mod != txt_local["todos"] and (mod.upper() in modelo_detectado_raw or modelo_detectado_raw in mod.upper()):
-                        modelo_encontrado = mod
-                        break
-                
-                if modelo_encontrado:
-                    if st.session_state.vin_detectado_previo != vin_busqueda:
-                        st.session_state.filtro_modelo_taller = modelo_encontrado
-                        st.session_state.vin_detectado_previo = vin_busqueda
-                        st.toast(f"✅ Bastidor VIN detectado: {modelo_encontrado}", icon="🚘")
-                        st.rerun()
-                else:
-                    st.toast(f"⚠️ VIN registrado ({modelo_detectado_raw}), sin operaciones asociadas en el catálogo.", icon="ℹ️")
-            else:
-                st.toast("❌ Bastidor VIN no encontrado en la base de datos.", icon="⚠️")
+                key="vin_taller_input",
+                on_change=procesar_cambio_vin
+            )
 
         with col1:
-            idx_modelo = modelos_disponibles.index(st.session_state.filtro_modelo_taller) if st.session_state.filtro_modelo_taller in modelos_disponibles else 0
+            if "sb_modelo_taller" not in st.session_state or st.session_state["sb_modelo_taller"] not in modelos_disponibles:
+                st.session_state["sb_modelo_taller"] = txt_local["todos"]
+
             modelo_seleccionado = st.selectbox(
                 txt_local["f_modelo"], 
                 modelos_disponibles, 
-                index=idx_modelo, 
-                key="sb_modelo_taller_unique"
+                key="sb_modelo_taller"
             )
-            st.session_state.filtro_modelo_taller = modelo_seleccionado
 
         with col2:
             buscar_pieza = st.text_input(txt_local["f_pieza"], "").strip()

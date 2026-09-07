@@ -245,7 +245,7 @@ CATEGORY_COLOR_MAP = {category: colors[0] for category, colors in CATEGORY_COLOR
 
 
 # =========================================================================
-# UTILIDADES Y CARGA CORREGIDA DE VINES
+# UTILIDADES Y CARGA CORREGIDA DE VINES (COLUMNAS DEFINIDAS EXPLICITAMENTE)
 # =========================================================================
 def normalizar_texto(texto):
     texto = str(texto)
@@ -254,31 +254,38 @@ def normalizar_texto(texto):
 def normalize_text(text):
     return normalizar_texto(text)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def load_data_vines():
     try:
-        response = requests.get(URL_GITHUB_VINES, timeout=10)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(URL_GITHUB_VINES, headers=headers, timeout=15)
+        
         if response.status_code == 200:
             file_bytes = io.BytesIO(response.content)
             df_vines = pd.read_excel(file_bytes, engine="pyxlsb")
             df_vines.columns = df_vines.columns.astype(str).str.strip()
             
-            # Identificar dinámicamente las columnas
-            col_vin = next((c for c in df_vines.columns if 'VIN' in c.upper() or 'BASTIDOR' in c.upper()), None)
-            col_modelo = next((c for c in df_vines.columns if 'MODEL' in c.upper()), None)
+            # Búsqueda explícita con tus columnas de Excel: new_name (VIN) y new_productmodel_idname (Modelo)
+            col_vin = next((c for c in df_vines.columns if c.lower() == 'new_name' or 'vin' in c.lower() or 'bastidor' in c.lower()), None)
+            col_modelo = next((c for c in df_vines.columns if c.lower() == 'new_productmodel_idname' or 'model' in c.lower()), None)
             
             if col_vin and col_modelo:
                 df_clean = df_vines[[col_vin, col_modelo]].dropna().copy()
                 df_clean.columns = ['VIN', 'Modelo_Excel']
                 
-                # Saneamiento de textos y eliminación de .0 si pyxlsb lee los números como float
+                # Saneamiento del VIN
                 df_clean['VIN'] = df_clean['VIN'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
                 df_clean['Modelo_Excel'] = df_clean['Modelo_Excel'].astype(str).str.strip()
                 return df_clean
+            else:
+                st.sidebar.error(f"⚠️ Columnas esperadas no encontradas. Columnas en Excel: {list(df_vines.columns)}")
+        else:
+            st.sidebar.error(f"⚠️ Error HTTP {response.status_code} descargando VINes.xlsb")
     except Exception as exc:
-        st.error(f"Error cargando VINes.xlsb desde GitHub: {exc}")
-    return pd.DataFrame(columns=['VIN', 'Modelo_Excel'])
+        st.sidebar.error(f"⚠️ Excepción al leer VINes.xlsb: {exc}")
     
+    return pd.DataFrame(columns=['VIN', 'Modelo_Excel'])
+
 def ensure_token_state():
     for key, value in {
         "tokens_totales_input": 0,
@@ -867,7 +874,7 @@ def check_password(txt_local):
 
 
 # =========================================================================
-# PANTALLA 1 - TIEMPOS DE TALLER (CON DETECCIÓN POR VIN FUNCIONAL)
+# PANTALLA 1 - TIEMPOS DE TALLER
 # =========================================================================
 @st.cache_data
 def load_data_tiempos_v3():
@@ -935,46 +942,47 @@ def render_tiempos_taller(txt_local):
         modelos_filtrados = [m for m in modelos_raw if any(marca in m.upper() for marca in ["OMODA", "JAECOO", "LEPAS"])]
         modelos_disponibles = [txt_local["todos"]] + sorted(list(set(modelos_filtrados)))
 
-        # Callback para procesar el VIN cuando cambia el campo de entrada
-        def procesar_cambio_vin():
-            vin_val = st.session_state.get("vin_taller_input", "").strip().upper()
-            if len(vin_val) == 17 and not df_vines_db.empty:
-                coincidencia = df_vines_db[df_vines_db['VIN'] == vin_val]
-                if not coincidencia.empty:
-                    modelo_detectado_raw = str(coincidencia.iloc[0]['Modelo_Excel']).upper().strip()
-                    modelo_encontrado = None
-                    for mod in modelos_disponibles:
-                        if mod != txt_local["todos"] and (mod.upper() in modelo_detectado_raw or modelo_detectado_raw in mod.upper()):
-                            modelo_encontrado = mod
-                            break
-                    
-                    if modelo_encontrado:
-                        st.session_state["sb_modelo_taller"] = modelo_encontrado
-                        st.toast(f"✅ Bastidor VIN detectado: {modelo_encontrado}", icon="🚘")
-                    else:
-                        st.toast(f"⚠️ VIN registrado ({modelo_detectado_raw}), sin operaciones asociadas en el catálogo.", icon="ℹ️")
-                else:
-                    st.toast("❌ Bastidor VIN no encontrado en la base de datos.", icon="⚠️")
-
         col_vin, col1, col2, col3 = st.columns([1.5, 1.2, 1.5, 1.5])
 
         with col_vin:
-            st.text_input(
+            vin_busqueda = st.text_input(
                 "🔎 Buscar por VIN (Bastidor):", 
                 max_chars=17, 
                 placeholder="17 caracteres...",
-                key="vin_taller_input",
-                on_change=procesar_cambio_vin
-            )
+                key="vin_taller_input"
+            ).strip().upper()
+
+        # EVALUACIÓN DIRECTA DEL VIN EN CADA RENDER
+        modelo_detectado_por_vin = None
+        if len(vin_busqueda) == 17:
+            if not df_vines_db.empty:
+                coincidencia = df_vines_db[df_vines_db['VIN'] == vin_busqueda]
+                if not coincidencia.empty:
+                    modelo_raw = str(coincidencia.iloc[0]['Modelo_Excel']).upper().strip()
+                    for mod in modelos_disponibles:
+                        if mod != txt_local["todos"] and (mod.upper() in modelo_raw or modelo_raw in mod.upper()):
+                            modelo_detectado_por_vin = mod
+                            break
+                    
+                    if modelo_detectado_por_vin:
+                        st.info(f"🚘 **VIN Detectado:** {vin_busqueda} ➔ **Modelo:** {modelo_detectado_por_vin}")
+                    else:
+                        st.warning(f"⚠️ Bastidor localizado ({modelo_raw}), pero no coincide con ningún modelo del desplegable.")
+                else:
+                    st.error("❌ Bastidor VIN no encontrado en la base de datos VINes.xlsb.")
+            else:
+                st.error("❌ BBDD de VINes vacía o no se pudo cargar desde GitHub.")
 
         with col1:
-            if "sb_modelo_taller" not in st.session_state or st.session_state["sb_modelo_taller"] not in modelos_disponibles:
-                st.session_state["sb_modelo_taller"] = txt_local["todos"]
+            default_index = 0
+            if modelo_detectado_por_vin and modelo_detectado_por_vin in modelos_disponibles:
+                default_index = modelos_disponibles.index(modelo_detectado_por_vin)
 
             modelo_seleccionado = st.selectbox(
                 txt_local["f_modelo"], 
                 modelos_disponibles, 
-                key="sb_modelo_taller"
+                index=default_index,
+                key="sb_modelo_taller_select"
             )
 
         with col2:

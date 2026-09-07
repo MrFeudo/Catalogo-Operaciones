@@ -10,6 +10,7 @@ import datetime
 from pathlib import Path
 
 import pandas as pd
+import requests  
 import streamlit as st
 import streamlit.components.v1 as components
 from PIL import Image
@@ -258,7 +259,6 @@ def normalize_text(text):
 @st.cache_data(ttl=3600)
 def load_data_vines():
     try:
-        # Descargar los bytes reales del archivo de GitHub
         response = requests.get(URL_GITHUB_VINES, timeout=10)
         if response.status_code == 200:
             file_bytes = io.BytesIO(response.content)
@@ -273,14 +273,14 @@ def load_data_vines():
                 df_clean = df_vines[[col_vin, col_modelo]].dropna().copy()
                 df_clean.columns = ['VIN', 'Modelo_Excel']
                 
-                # Saneamiento de textos
+                # Saneamiento de textos y eliminación de .0 si pyxlsb lee los números como float
                 df_clean['VIN'] = df_clean['VIN'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
                 df_clean['Modelo_Excel'] = df_clean['Modelo_Excel'].astype(str).str.strip()
                 return df_clean
     except Exception as exc:
         st.error(f"Error cargando VINes.xlsb desde GitHub: {exc}")
     return pd.DataFrame(columns=['VIN', 'Modelo_Excel'])
-
+    
 def ensure_token_state():
     for key, value in {
         "tokens_totales_input": 0,

@@ -71,7 +71,8 @@ DEFAULT_SESSION_VALUES = {
     "ultima_consulta_info": "Ninguna consulta.",
     "filtro_modelo_taller": "Todos",
     "solicitar_marca": "OMODA",
-    "solicitar_modelo": "OMODA 5 (Gasolina)"
+    "solicitar_modelo": "OMODA 5 (Gasolina)",
+    "vin_detectado_previo": ""
 }
 
 for key, value in DEFAULT_SESSION_VALUES.items():
@@ -245,7 +246,7 @@ CATEGORY_COLOR_MAP = {category: colors[0] for category, colors in CATEGORY_COLOR
 
 
 # =========================================================================
-# UTILIDADES Y CARGA DE VINES
+# UTILIDADES Y CARGA CORREGIDA DE VINES
 # =========================================================================
 def normalizar_texto(texto):
     texto = str(texto)
@@ -260,17 +261,20 @@ def load_data_vines():
         df_vines = pd.read_excel(URL_GITHUB_VINES, engine="pyxlsb")
         df_vines.columns = df_vines.columns.astype(str).str.strip()
         
+        # Identificar las columnas sin importar variaciones de mayúsculas o espacios
         col_vin = next((c for c in df_vines.columns if 'VIN' in c.upper() or 'BASTIDOR' in c.upper()), None)
         col_modelo = next((c for c in df_vines.columns if 'MODEL' in c.upper()), None)
         
         if col_vin and col_modelo:
             df_clean = df_vines[[col_vin, col_modelo]].dropna().copy()
             df_clean.columns = ['VIN', 'Modelo_Excel']
-            df_clean['VIN'] = df_clean['VIN'].astype(str).str.strip().str.upper()
+            
+            # Limpieza exhaustiva: Convertir a string, quitar decimales (.0) si pyxlsb leyó números
+            df_clean['VIN'] = df_clean['VIN'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
             df_clean['Modelo_Excel'] = df_clean['Modelo_Excel'].astype(str).str.strip()
             return df_clean
     except Exception as exc:
-        st.error(f"Error al cargar el catálogo de VINes.xlsb: {exc}")
+        st.error(f"Error al cargar el archivo VINes.xlsb: {exc}")
     return pd.DataFrame(columns=['VIN', 'Modelo_Excel'])
 
 def ensure_token_state():
@@ -787,7 +791,7 @@ def consultar_ia_garantias(descripcion_averia, archivo_imagen=None):
         prompt_usuario = (
             f"Caso reportado por el taller:\n'{descripcion_averia}'\n\n"
             "Genera el dictamen técnico estructurado. No incluyas introducciones. "
-            "Usa frases muy cortas. Sigue strictly este orden:\n\n"
+            "Usa frases muy cortas. Sigue estrictamente este orden:\n\n"
             "**📢 VEREDICTO INMEDIATO Y DICTAMEN DE COBERTURA**\n"
             "- Indica si el caso se **ACEPTA**, se **RECHAZA** o requiere **PRE-AUTORIZACIÓN**.\n"
             "- Argumenta la decisión según política.\n\n"
@@ -861,7 +865,7 @@ def check_password(txt_local):
 
 
 # =========================================================================
-# PANTALLA 1 - TIEMPOS DE TALLER
+# PANTALLA 1 - TIEMPOS DE TALLER (CON DETECCIÓN POR VIN FUNCIONAL)
 # =========================================================================
 @st.cache_data
 def load_data_tiempos_v3():
@@ -929,32 +933,47 @@ def render_tiempos_taller(txt_local):
         modelos_filtrados = [m for m in modelos_raw if any(marca in m.upper() for marca in ["OMODA", "JAECOO", "LEPAS"])]
         modelos_disponibles = [txt_local["todos"]] + sorted(list(set(modelos_filtrados)))
 
-        # Fila de Entrada de VIN y Modelo
+        # Fila de Entrada de VIN y Filtros
         col_vin, col1, col2, col3 = st.columns([1.5, 1.2, 1.5, 1.5])
 
         with col_vin:
-            vin_busqueda = st.text_input("🔎 Buscar por VIN (Bastidor):", max_chars=17, placeholder="17 caracteres...").strip().upper()
+            vin_busqueda = st.text_input(
+                "🔎 Buscar por VIN (Bastidor):", 
+                max_chars=17, 
+                placeholder="17 caracteres...",
+                key="vin_taller_input"
+            ).strip().upper()
 
+        # Detección por VIN en tiempo real
         if len(vin_busqueda) == 17 and not df_vines_db.empty:
             coincidencia = df_vines_db[df_vines_db['VIN'] == vin_busqueda]
             if not coincidencia.empty:
-                modelo_detectado_raw = coincidencia.iloc[0]['Modelo_Excel'].upper()
+                modelo_detectado_raw = str(coincidencia.iloc[0]['Modelo_Excel']).upper().strip()
                 modelo_encontrado = None
                 for mod in modelos_disponibles:
                     if mod != txt_local["todos"] and (mod.upper() in modelo_detectado_raw or modelo_detectado_raw in mod.upper()):
                         modelo_encontrado = mod
                         break
+                
                 if modelo_encontrado:
-                    st.session_state.filtro_modelo_taller = modelo_encontrado
-                    st.toast(f"✅ Bastidor VIN detectado: {modelo_encontrado}", icon="🚘")
+                    if st.session_state.vin_detectado_previo != vin_busqueda:
+                        st.session_state.filtro_modelo_taller = modelo_encontrado
+                        st.session_state.vin_detectado_previo = vin_busqueda
+                        st.toast(f"✅ Bastidor VIN detectado: {modelo_encontrado}", icon="🚘")
+                        st.rerun()
                 else:
-                    st.toast(f"⚠️ VIN registrado ({modelo_detectado_raw}), sin catálogo exacto.", icon="ℹ️")
+                    st.toast(f"⚠️ VIN registrado ({modelo_detectado_raw}), sin operaciones asociadas en el catálogo.", icon="ℹ️")
             else:
                 st.toast("❌ Bastidor VIN no encontrado en la base de datos.", icon="⚠️")
 
         with col1:
             idx_modelo = modelos_disponibles.index(st.session_state.filtro_modelo_taller) if st.session_state.filtro_modelo_taller in modelos_disponibles else 0
-            modelo_seleccionado = st.selectbox(txt_local["f_modelo"], modelos_disponibles, index=idx_modelo, key="sb_modelo_taller")
+            modelo_seleccionado = st.selectbox(
+                txt_local["f_modelo"], 
+                modelos_disponibles, 
+                index=idx_modelo, 
+                key="sb_modelo_taller_unique"
+            )
             st.session_state.filtro_modelo_taller = modelo_seleccionado
 
         with col2:
@@ -1326,7 +1345,7 @@ def render_generador_comentarios():
 
 
 # =========================================================================
-# PANTALLA 3 - SOLICITAR OPERACIÓN
+# PANTALLA 3 - SOLICITAR OPERACIÓN (CON DETECCIÓN POR VIN FUNCIONAL)
 # =========================================================================
 def render_solicitar_operacion(txt_local):
     st.title(txt_local["solicitar_titulo"])
@@ -1343,29 +1362,29 @@ def render_solicitar_operacion(txt_local):
 
     df_vines_db = load_data_vines()
 
-    # Campo VIN fuera del form para actualizar desplegables al instante
+    # Campo VIN fuera del form para actualizar los desplegables en vivo
     vin = st.text_input(
         txt_local["form_vin"], 
         max_chars=17, 
         placeholder=txt_local["form_vin_holder"],
+        key="vin_solicitar_input",
         help="Al escribir los 17 caracteres, se detectará la marca y modelo automáticamente."
     ).strip().upper()
 
-    # Lógica de detección automática en VINes.xlsb
+    # Detección por VIN
     if len(vin) == 17 and not df_vines_db.empty:
         coincidencia = df_vines_db[df_vines_db['VIN'] == vin]
         if not coincidencia.empty:
-            modelo_detectado_raw = coincidencia.iloc[0]['Modelo_Excel'].upper()
+            modelo_detectado_raw = str(coincidencia.iloc[0]['Modelo_Excel']).upper().strip()
             for mod_comercial in MAPEO_MODELOS.keys():
                 if mod_comercial.upper() in modelo_detectado_raw or modelo_detectado_raw in mod_comercial.upper():
-                    if mod_comercial.startswith("OMODA"):
-                        st.session_state.solicitar_marca = "OMODA"
-                    elif mod_comercial.startswith("JAECOO"):
-                        st.session_state.solicitar_marca = "JAECOO"
-                    elif mod_comercial.startswith("LEPAS"):
-                        st.session_state.solicitar_marca = "LEPAS"
-                    st.session_state.solicitar_modelo = mod_comercial
-                    st.toast(f"✅ Bastidor detectado: {mod_comercial}", icon="🚘")
+                    nueva_marca = "OMODA" if mod_comercial.startswith("OMODA") else ("JAECOO" if mod_comercial.startswith("JAECOO") else "LEPAS")
+                    
+                    if st.session_state.solicitar_modelo != mod_comercial:
+                        st.session_state.solicitar_marca = nueva_marca
+                        st.session_state.solicitar_modelo = mod_comercial
+                        st.toast(f"✅ Bastidor detectado: {mod_comercial}", icon="🚘")
+                        st.rerun()
                     break
 
     st.subheader(txt_local["form_sub"])
@@ -1374,12 +1393,12 @@ def render_solicitar_operacion(txt_local):
     with col1:
         marcas = ["OMODA", "JAECOO", "LEPAS"]
         idx_m = marcas.index(st.session_state.solicitar_marca) if st.session_state.solicitar_marca in marcas else 0
-        marca = st.selectbox(txt_local["form_marca"], marcas, index=idx_m)
+        marca = st.selectbox(txt_local["form_marca"], marcas, index=idx_m, key="sb_marca_solicitar")
         st.session_state.solicitar_marca = marca
 
         modelos_filtrados = [mod for mod in MAPEO_MODELOS if mod.upper().startswith(marca.upper())]
         idx_mod = modelos_filtrados.index(st.session_state.solicitar_modelo) if st.session_state.solicitar_modelo in modelos_filtrados else 0
-        modelo_comercial = st.selectbox(txt_local["form_modelo"], modelos_filtrados, index=idx_mod)
+        modelo_comercial = st.selectbox(txt_local["form_modelo"], modelos_filtrados, index=idx_mod, key="sb_modelo_solicitar")
         st.session_state.solicitar_modelo = modelo_comercial
 
     with col2:

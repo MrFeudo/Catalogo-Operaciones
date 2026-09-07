@@ -255,26 +255,30 @@ def normalizar_texto(texto):
 def normalize_text(text):
     return normalizar_texto(text)
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_data_vines():
     try:
-        df_vines = pd.read_excel(URL_GITHUB_VINES, engine="pyxlsb")
-        df_vines.columns = df_vines.columns.astype(str).str.strip()
-        
-        # Identificar las columnas sin importar variaciones de mayúsculas o espacios
-        col_vin = next((c for c in df_vines.columns if 'VIN' in c.upper() or 'BASTIDOR' in c.upper()), None)
-        col_modelo = next((c for c in df_vines.columns if 'MODEL' in c.upper()), None)
-        
-        if col_vin and col_modelo:
-            df_clean = df_vines[[col_vin, col_modelo]].dropna().copy()
-            df_clean.columns = ['VIN', 'Modelo_Excel']
+        # Descargar los bytes reales del archivo de GitHub
+        response = requests.get(URL_GITHUB_VINES, timeout=10)
+        if response.status_code == 200:
+            file_bytes = io.BytesIO(response.content)
+            df_vines = pd.read_excel(file_bytes, engine="pyxlsb")
+            df_vines.columns = df_vines.columns.astype(str).str.strip()
             
-            # Limpieza exhaustiva: Convertir a string, quitar decimales (.0) si pyxlsb leyó números
-            df_clean['VIN'] = df_clean['VIN'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
-            df_clean['Modelo_Excel'] = df_clean['Modelo_Excel'].astype(str).str.strip()
-            return df_clean
+            # Identificar dinámicamente las columnas
+            col_vin = next((c for c in df_vines.columns if 'VIN' in c.upper() or 'BASTIDOR' in c.upper()), None)
+            col_modelo = next((c for c in df_vines.columns if 'MODEL' in c.upper()), None)
+            
+            if col_vin and col_modelo:
+                df_clean = df_vines[[col_vin, col_modelo]].dropna().copy()
+                df_clean.columns = ['VIN', 'Modelo_Excel']
+                
+                # Saneamiento de textos
+                df_clean['VIN'] = df_clean['VIN'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
+                df_clean['Modelo_Excel'] = df_clean['Modelo_Excel'].astype(str).str.strip()
+                return df_clean
     except Exception as exc:
-        st.error(f"Error al cargar el archivo VINes.xlsb: {exc}")
+        st.error(f"Error cargando VINes.xlsb desde GitHub: {exc}")
     return pd.DataFrame(columns=['VIN', 'Modelo_Excel'])
 
 def ensure_token_state():

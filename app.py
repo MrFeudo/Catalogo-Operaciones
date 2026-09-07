@@ -1,5 +1,3 @@
-
-
 import csv
 import io
 import json
@@ -30,6 +28,7 @@ except Exception:
 st.set_page_config(page_title="Buscador Técnico OMODA & JAECOO", layout="wide")
 
 URL_GITHUB_EXCEL = "https://github.com/MrFeudo/Catalogo-Operaciones/raw/main/DMS_Active_Spare_Parts.xlsb"
+URL_GITHUB_VINES = "https://github.com/MrFeudo/Catalogo-Operaciones/raw/main/VINes.xlsb"
 
 BASE_DIR = Path(__file__).resolve().parent
 STATS_FILE = BASE_DIR / "usage_stats.json"
@@ -70,6 +69,9 @@ DEFAULT_SESSION_VALUES = {
     "tokens_totales_output": 0,
     "dinero_total_gastado": 0.0,
     "ultima_consulta_info": "Ninguna consulta.",
+    "filtro_modelo_taller": "Todos",
+    "solicitar_marca": "OMODA",
+    "solicitar_modelo": "OMODA 5 (Gasolina)"
 }
 
 for key, value in DEFAULT_SESSION_VALUES.items():
@@ -231,48 +233,45 @@ TOP_RED_LIMIT = 3
 TOP_AMBER_LIMIT = 5
 
 CATEGORY_COLOR_PALETTES = {
-    # El primer color de cada familia es el que usa el pie chart.
-    # Las barras usan tonos diferentes dentro de la misma familia.
-    "Evidencias / documentación": [
-        "#ff7f0e", "#ff9f40", "#ffbb78", "#d95f02", "#fdb462", "#e66101",
-    ],
-    "Operaciones frecuentes": [
-        "#2ca02c", "#59b359", "#98df8a", "#1b7837", "#5aae61", "#a6dba0",
-    ],
-    "Tipo de reclamación / Cobertura": [
-        "#9467bd", "#b084cc", "#c5b0d5", "#762a83", "#9970ab", "#c2a5cf",
-    ],
-    "Costes, mano de obra y piezas": [
-        "#1f77b4", "#4f9bd3", "#aec7e8", "#2166ac", "#67a9cf", "#d1e5f0", "#08519c", "#6baed6",
-    ],
-    "Información y campos": [
-        "#d62728", "#ff6961", "#ff9896", "#b2182b", "#ef8a62", "#fddbc7",
-    ],
-    "Comentario manual": [
-        "#7f7f7f", "#9a9a9a", "#bdbdbd",
-    ],
+    "Evidencias / documentación": ["#ff7f0e", "#ff9f40", "#ffbb78", "#d95f02", "#fdb462", "#e66101"],
+    "Operaciones frecuentes": ["#2ca02c", "#59b359", "#98df8a", "#1b7837", "#5aae61", "#a6dba0"],
+    "Tipo de reclamación / Cobertura": ["#9467bd", "#b084cc", "#c5b0d5", "#762a83", "#9970ab", "#c2a5cf"],
+    "Costes, mano de obra y piezas": ["#1f77b4", "#4f9bd3", "#aec7e8", "#2166ac", "#67a9cf", "#d1e5f0", "#08519c", "#6baed6"],
+    "Información y campos": ["#d62728", "#ff6961", "#ff9896", "#b2182b", "#ef8a62", "#fddbc7"],
+    "Comentario manual": ["#7f7f7f", "#9a9a9a", "#bdbdbd"]
 }
 
-CATEGORY_COLOR_MAP = {
-    category: colors[0]
-    for category, colors in CATEGORY_COLOR_PALETTES.items()
-}
+CATEGORY_COLOR_MAP = {category: colors[0] for category, colors in CATEGORY_COLOR_PALETTES.items()}
 
 
 # =========================================================================
-# UTILIDADES
+# UTILIDADES Y CARGA DE VINES
 # =========================================================================
 def normalizar_texto(texto):
     texto = str(texto)
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', texto)
-        if unicodedata.category(c) != 'Mn'
-    ).lower()
-
+    return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn').lower()
 
 def normalize_text(text):
     return normalizar_texto(text)
 
+@st.cache_data
+def load_data_vines():
+    try:
+        df_vines = pd.read_excel(URL_GITHUB_VINES, engine="pyxlsb")
+        df_vines.columns = df_vines.columns.astype(str).str.strip()
+        
+        col_vin = next((c for c in df_vines.columns if 'VIN' in c.upper() or 'BASTIDOR' in c.upper()), None)
+        col_modelo = next((c for c in df_vines.columns if 'MODEL' in c.upper()), None)
+        
+        if col_vin and col_modelo:
+            df_clean = df_vines[[col_vin, col_modelo]].dropna().copy()
+            df_clean.columns = ['VIN', 'Modelo_Excel']
+            df_clean['VIN'] = df_clean['VIN'].astype(str).str.strip().str.upper()
+            df_clean['Modelo_Excel'] = df_clean['Modelo_Excel'].astype(str).str.strip()
+            return df_clean
+    except Exception as exc:
+        st.error(f"Error al cargar el catálogo de VINes.xlsb: {exc}")
+    return pd.DataFrame(columns=['VIN', 'Modelo_Excel'])
 
 def ensure_token_state():
     for key, value in {
@@ -283,7 +282,6 @@ def ensure_token_state():
     }.items():
         if key not in st.session_state:
             st.session_state[key] = value
-
 
 def register_gemini_usage(response):
     ensure_token_state()
@@ -309,11 +307,9 @@ def load_usage_stats():
     except Exception:
         return {}
 
-
 def save_usage_stats(stats):
     with open(STATS_FILE, "w", encoding="utf-8") as file:
         json.dump(stats, file, ensure_ascii=False, indent=4)
-
 
 def update_usage_stats(selected_keys):
     stats = load_usage_stats()
@@ -321,14 +317,11 @@ def update_usage_stats(selected_keys):
         stats[key] = stats.get(key, 0) + 1
     save_usage_stats(stats)
 
-
 def generate_log_id(now):
     return now.strftime("%Y%m%d_%H%M%S_%f")
 
-
 def was_comment_edited(base_comment, final_comment):
     return " ".join(str(base_comment).split()) != " ".join(str(final_comment).split())
-
 
 def get_categories_for_keys(selected_keys):
     categories = []
@@ -337,7 +330,6 @@ def get_categories_for_keys(selected_keys):
             if key in COMMENTS and COMMENTS[key]["category"] == category and category not in categories:
                 categories.append(category)
     return categories
-
 
 def migrate_csv_if_needed(path, fieldnames):
     if not path.exists() or path.stat().st_size == 0:
@@ -353,15 +345,11 @@ def migrate_csv_if_needed(path, fieldnames):
     if old_fields == fieldnames:
         return
 
-    migrated = []
-    for row in rows:
-        migrated.append({field: row.get(field, "") for field in fieldnames})
-
+    migrated = [{field: row.get(field, "") for field in fieldnames} for row in rows]
     with open(path, "w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(migrated)
-
 
 def log_generated_comment(selected_keys, final_comment, base_comment, claim_number):
     now = datetime.datetime.now()
@@ -377,17 +365,13 @@ def log_generated_comment(selected_keys, final_comment, base_comment, claim_numb
     migrate_csv_if_needed(DETAIL_LOG_FILE, DETAIL_LOG_FIELDNAMES)
 
     summary_row = {
-        "log_id": log_id,
-        "timestamp": now.isoformat(timespec="seconds"),
-        "date": now.strftime("%Y-%m-%d"),
-        "time": now.strftime("%H:%M:%S"),
+        "log_id": log_id, "timestamp": now.isoformat(timespec="seconds"),
+        "date": now.strftime("%Y-%m-%d"), "time": now.strftime("%H:%M:%S"),
         "claim_number": claim_str,
         "reason_ids": ", ".join(selected_keys) if selected_keys else "MANUAL",
         "reason_labels": " | ".join(selected_labels) if selected_labels else "Comentario manual",
-        "reason_categories": cat_text,
-        "base_comment": base_comment,
-        "final_comment": final_comment,
-        "was_edited": edited,
+        "reason_categories": cat_text, "base_comment": base_comment,
+        "final_comment": final_comment, "was_edited": edited,
     }
 
     file_exists = LOG_FILE.exists() and LOG_FILE.stat().st_size > 0
@@ -407,46 +391,28 @@ def log_generated_comment(selected_keys, final_comment, base_comment, claim_numb
             for key in selected_keys:
                 if key in COMMENTS:
                     writer.writerow({
-                        "log_id": log_id,
-                        "timestamp": now.isoformat(timespec="seconds"),
-                        "date": now.strftime("%Y-%m-%d"),
-                        "time": now.strftime("%H:%M:%S"),
-                        "claim_number": claim_str,
-                        "reason_id": key,
+                        "log_id": log_id, "timestamp": now.isoformat(timespec="seconds"),
+                        "date": now.strftime("%Y-%m-%d"), "time": now.strftime("%H:%M:%S"),
+                        "claim_number": claim_str, "reason_id": key,
                         "reason_label": COMMENTS[key]["label"],
                         "reason_category": COMMENTS[key]["category"],
-                        "base_comment": base_comment,
-                        "final_comment": final_comment,
+                        "base_comment": base_comment, "final_comment": final_comment,
                         "was_edited": edited,
                     })
         else:
             writer.writerow({
-                "log_id": log_id,
-                "timestamp": now.isoformat(timespec="seconds"),
-                "date": now.strftime("%Y-%m-%d"),
-                "time": now.strftime("%H:%M:%S"),
-                "claim_number": claim_str,
-                "reason_id": "MANUAL",
-                "reason_label": "Comentario manual",
-                "reason_category": "Comentario manual",
-                "base_comment": base_comment,
-                "final_comment": final_comment,
+                "log_id": log_id, "timestamp": now.isoformat(timespec="seconds"),
+                "date": now.strftime("%Y-%m-%d"), "time": now.strftime("%H:%M:%S"),
+                "claim_number": claim_str, "reason_id": "MANUAL",
+                "reason_label": "Comentario manual", "reason_category": "Comentario manual",
+                "base_comment": base_comment, "final_comment": final_comment,
                 "was_edited": edited,
             })
 
-
 def get_usage_rank_map(usage_stats):
-    used_counts = sorted(
-        {usage_stats.get(k, 0) for k in COMMENTS if usage_stats.get(k, 0) > 0},
-        reverse=True
-    )
+    used_counts = sorted({usage_stats.get(k, 0) for k in COMMENTS if usage_stats.get(k, 0) > 0}, reverse=True)
     count_rank_map = {count: idx + 1 for idx, count in enumerate(used_counts)}
-    return {
-        k: count_rank_map[usage_stats.get(k, 0)]
-        for k in COMMENTS
-        if usage_stats.get(k, 0) > 0
-    }
-
+    return {k: count_rank_map[usage_stats.get(k, 0)] for k in COMMENTS if usage_stats.get(k, 0) > 0}
 
 def get_stats_dataframe(usage_stats):
     rank_map = get_usage_rank_map(usage_stats)
@@ -457,15 +423,11 @@ def get_stats_dataframe(usage_stats):
         if uses <= 0:
             continue
         rows.append({
-            "ID": key,
-            "TOP": f"TOP {rank_map.get(key, '-')}",
-            "Usos": uses,
-            "%": (uses / total_uses * 100) if total_uses else 0,
-            "Categoría": COMMENTS[key]["category"],
-            "Motivo": COMMENTS[key]["label"],
+            "ID": key, "TOP": f"TOP {rank_map.get(key, '-')}",
+            "Usos": uses, "%": (uses / total_uses * 100) if total_uses else 0,
+            "Categoría": COMMENTS[key]["category"], "Motivo": COMMENTS[key]["label"],
         })
     return pd.DataFrame(rows).sort_values(by=["Usos", "ID"], ascending=[False, True]) if rows else pd.DataFrame()
-
 
 def get_category_stats_dataframe(usage_stats):
     rows = []
@@ -473,87 +435,37 @@ def get_category_stats_dataframe(usage_stats):
     for category in CATEGORY_ORDER:
         uses = sum(usage_stats.get(k, 0) for k, item in COMMENTS.items() if item["category"] == category)
         if uses > 0:
-            rows.append({
-                "Categoría": category,
-                "Usos": uses,
-                "%": (uses / total * 100) if total else 0,
-            })
+            rows.append({"Categoría": category, "Usos": uses, "%": (uses / total * 100) if total else 0})
     return pd.DataFrame(rows).sort_values(by="Usos", ascending=False) if rows else pd.DataFrame()
 
 def get_category_color(category):
-    palette = CATEGORY_COLOR_PALETTES.get(category, CATEGORY_COLOR_PALETTES["Comentario manual"])
-    return palette[0]
-
+    return CATEGORY_COLOR_PALETTES.get(category, CATEGORY_COLOR_PALETTES["Comentario manual"])[0]
 
 def get_reason_color(reason_id):
     item = COMMENTS.get(str(reason_id))
     if item is None:
         return CATEGORY_COLOR_PALETTES["Comentario manual"][0]
-
     category = item["category"]
     palette = CATEGORY_COLOR_PALETTES.get(category, CATEGORY_COLOR_PALETTES["Comentario manual"])
-    keys_in_category = [
-        key for key, comment in COMMENTS.items()
-        if comment["category"] == category
-    ]
-
+    keys_in_category = [key for key, comment in COMMENTS.items() if comment["category"] == category]
     try:
         index = keys_in_category.index(str(reason_id))
     except ValueError:
         index = 0
-
-    if index < len(palette):
-        return palette[index]
-
     return palette[index % len(palette)]
-
-
-def shorten_chart_label(text, max_length=48):
-    text = str(text)
-    if len(text) <= max_length:
-        return text
-    return text[:max_length - 1] + "…"
-
-
-def add_matplotlib_value_labels(ax, values):
-    max_value = max(values) if values else 0
-    offset = max(0.08, max_value * 0.012)
-    for index, value in enumerate(values):
-        ax.text(
-            int(value) + offset,
-            index,
-            str(int(value)),
-            va="center",
-            fontsize=9,
-        )
-
 
 def _escape_html(value):
     return html.escape(str(value or ""), quote=True)
 
-
 def render_dependency_free_bar_chart(df_stats):
-    """
-    Gráfico de barras sin matplotlib/plotly/altair.
-    Usa HTML/CSS para funcionar en Streamlit Cloud sin dependencias extra.
-    Cada motivo usa un tono de la familia de color de su categoría.
-    """
     if df_stats.empty:
         st.info("Aún no hay motivos con usos registrados.")
         return
-
     bar_df = df_stats.copy().sort_values(by=["Usos", "ID"], ascending=[False, True])
-    max_value = int(bar_df["Usos"].max()) if not bar_df.empty else 0
-    max_value = max(max_value, 1)
+    max_value = max(int(bar_df["Usos"].max()) if not bar_df.empty else 0, 1)
+    used_categories = [cat for cat in CATEGORY_ORDER if cat in set(bar_df["Categoría"].tolist())]
 
-    used_categories = [
-        category for category in CATEGORY_ORDER
-        if category in set(bar_df["Categoría"].tolist())
-    ]
-
-    tick_step = 1
-    if max_value > 12:
-        tick_step = max(1, math.ceil(max_value / 8))
+    tick_step = max(1, math.ceil(max_value / 8)) if max_value > 12 else 1
     ticks = list(range(0, max_value + 1, tick_step))
     if ticks[-1] != max_value:
         ticks.append(max_value)
@@ -565,37 +477,20 @@ def render_dependency_free_bar_chart(df_stats):
         uses = int(row["Usos"])
         width_pct = (uses / max_value) * 100 if max_value else 0
         color = get_reason_color(reason_id)
-
-        rows_html.append(
-            f"""
+        rows_html.append(f"""
             <div class="bar-row">
                 <div class="bar-label" title="{_escape_html(reason_label)}">{_escape_html(reason_label)}</div>
                 <div class="bar-track">
                     <div class="bar-fill" style="width:{width_pct:.2f}%; background:{color};"></div>
                     <span class="bar-value">{uses}</span>
                 </div>
-            </div>
-            """
-        )
+            </div>""")
 
-    ticks_html = "".join(
-        f'<span style="left:{(tick / max_value * 100 if max_value else 0):.2f}%">{tick}</span>'
-        for tick in ticks
-    )
-
-    legend_html = "".join(
-        f"""
-        <div class="legend-item">
-            <span class="legend-swatch" style="background:{get_category_color(category)}"></span>
-            <span>{_escape_html(category)}</span>
-        </div>
-        """
-        for category in used_categories
-    )
+    ticks_html = "".join(f'<span style="left:{(tick / max_value * 100 if max_value else 0):.2f}%">{tick}</span>' for tick in ticks)
+    legend_html = "".join(f'<div class="legend-item"><span class="legend-swatch" style="background:{get_category_color(cat)}"></span><span>{_escape_html(cat)}</span></div>' for cat in used_categories)
 
     chart_height = max(420, 54 * len(bar_df) + 120)
-    components.html(
-        f"""
+    components.html(f"""
         <div class="chart-card">
             <div class="chart-title">Usos por motivo</div>
             <div class="chart-layout">
@@ -609,10 +504,9 @@ def render_dependency_free_bar_chart(df_stats):
                     {legend_html}
                 </div>
             </div>
-            <div class="chart-caption">Cada barra muestra usos enteros. Los tonos pertenecen a la familia de color de su categoría.</div>
         </div>
         <style>
-            .chart-card {{ font-family: "Segoe UI", Arial, sans-serif; padding: 12px 14px 6px 14px; width: 100%; box-sizing: border-box; }}
+            .chart-card {{ font-family: "Segoe UI", Arial, sans-serif; padding: 12px 14px; width: 100%; box-sizing: border-box; }}
             .chart-title {{ font-size: 22px; font-weight: 650; text-align: center; margin-bottom: 18px; color: #1f2937; }}
             .chart-layout {{ display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }}
             .bars-area {{ position: relative; padding-bottom: 46px; border-left: 1px solid #d8dde6; }}
@@ -626,94 +520,53 @@ def render_dependency_free_bar_chart(df_stats):
             .x-axis-title {{ position: absolute; left: 368px; right: 0; bottom: 0; text-align: center; font-size: 13px; color: #64748b; }}
             .legend-area {{ font-size: 13px; color: #374151; padding-top: 6px; }}
             .legend-title {{ font-weight: 650; margin-bottom: 8px; color: #1f2937; }}
-            .legend-item {{ display: flex; align-items: center; gap: 8px; margin-bottom: 8px; line-height: 1.25; white-space: normal; }}
+            .legend-item {{ display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }}
             .legend-swatch {{ display: inline-block; width: 13px; height: 13px; border-radius: 2px; flex: 0 0 auto; }}
-            .chart-caption {{ margin-top: 8px; font-size: 12px; color: #6b7280; }}
-        </style>
-        """,
-        height=chart_height,
-        scrolling=True,
-    )
-
+        </style>""", height=chart_height, scrolling=True)
 
 def _donut_slice_path(cx, cy, r_outer, r_inner, start_angle, end_angle):
-    start_rad = math.radians(start_angle)
-    end_rad = math.radians(end_angle)
-    x1 = cx + r_outer * math.cos(start_rad)
-    y1 = cy + r_outer * math.sin(start_rad)
-    x2 = cx + r_outer * math.cos(end_rad)
-    y2 = cy + r_outer * math.sin(end_rad)
-    x3 = cx + r_inner * math.cos(end_rad)
-    y3 = cy + r_inner * math.sin(end_rad)
-    x4 = cx + r_inner * math.cos(start_rad)
-    y4 = cy + r_inner * math.sin(start_rad)
+    start_rad, end_rad = math.radians(start_angle), math.radians(end_angle)
+    x1, y1 = cx + r_outer * math.cos(start_rad), cy + r_outer * math.sin(start_rad)
+    x2, y2 = cx + r_outer * math.cos(end_rad), cy + r_outer * math.sin(end_rad)
+    x3, y3 = cx + r_inner * math.cos(end_rad), cy + r_inner * math.sin(end_rad)
+    x4, y4 = cx + r_inner * math.cos(start_rad), cy + r_inner * math.sin(start_rad)
     large_arc = 1 if end_angle - start_angle > 180 else 0
-    return (
-        f"M {x1:.2f} {y1:.2f} "
-        f"A {r_outer} {r_outer} 0 {large_arc} 1 {x2:.2f} {y2:.2f} "
-        f"L {x3:.2f} {y3:.2f} "
-        f"A {r_inner} {r_inner} 0 {large_arc} 0 {x4:.2f} {y4:.2f} Z"
-    )
-
+    return f"M {x1:.2f} {y1:.2f} A {r_outer} {r_outer} 0 {large_arc} 1 {x2:.2f} {y2:.2f} L {x3:.2f} {y3:.2f} A {r_inner} {r_inner} 0 {large_arc} 0 {x4:.2f} {y4:.2f} Z"
 
 def render_dependency_free_pie_chart(df_cat):
-    """Donut chart sin matplotlib, con porcentajes y leyenda completa."""
     if df_cat.empty:
         st.info("Aún no hay categorías con usos registrados.")
         return
-
     pie_df = df_cat.copy().sort_values(by="Usos", ascending=False)
     total = int(pie_df["Usos"].sum())
     if total <= 0:
         st.info("Aún no hay categorías con usos registrados.")
         return
 
-    cx, cy = 250, 250
-    r_outer, r_inner = 190, 70
+    cx, cy, r_outer, r_inner = 250, 250, 190, 70
     current_angle = -90
-    paths = []
-    labels = []
-    legend_items = []
+    paths, labels, legend_items = [], [], []
 
     for _, row in pie_df.iterrows():
-        category = str(row["Categoría"])
-        uses = int(row["Usos"])
+        cat, uses = str(row["Categoría"]), int(row["Usos"])
         percent = uses / total * 100
         angle = uses / total * 360
-        start = current_angle
-        end = current_angle + angle
-        color = get_category_color(category)
-        if angle >= 359.99:
-            end = start + 359.99
+        start, end = current_angle, current_angle + angle
+        color = get_category_color(cat)
+        if angle >= 359.99: end = start + 359.99
 
-        paths.append(
-            f'<path d="{_donut_slice_path(cx, cy, r_outer, r_inner, start, end)}" fill="{color}" stroke="white" stroke-width="2"></path>'
-        )
-
+        paths.append(f'<path d="{_donut_slice_path(cx, cy, r_outer, r_inner, start, end)}" fill="{color}" stroke="white" stroke-width="2"></path>')
         mid = math.radians((start + end) / 2)
-        label_radius = (r_outer + r_inner) / 2
-        lx = cx + label_radius * math.cos(mid)
-        ly = cy + label_radius * math.sin(mid)
-        labels.append(
-            f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" class="percent-label">{percent:.1f}%</text>'
-        )
-
-        legend_items.append(
-            f"""
-            <div class="legend-item">
-                <span class="legend-swatch" style="background:{color}"></span>
-                <span>{_escape_html(category)}: {uses} usos ({percent:.1f}%)</span>
-            </div>
-            """
-        )
+        lx, ly = cx + ((r_outer + r_inner) / 2) * math.cos(mid), cy + ((r_outer + r_inner) / 2) * math.sin(mid)
+        labels.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" class="percent-label">{percent:.1f}%</text>')
+        legend_items.append(f'<div class="legend-item"><span class="legend-swatch" style="background:{color}"></span><span>{_escape_html(cat)}: {uses} usos ({percent:.1f}%)</span></div>')
         current_angle += angle
 
-    components.html(
-        f"""
+    components.html(f"""
         <div class="pie-card">
             <div class="chart-title">Distribución por categoría</div>
             <div class="pie-layout">
-                <svg viewBox="0 0 500 500" class="pie-svg" role="img" aria-label="Distribución por categoría">
+                <svg viewBox="0 0 500 500" class="pie-svg">
                     {''.join(paths)}
                     <circle cx="{cx}" cy="{cy}" r="{r_inner}" fill="white"></circle>
                     {''.join(labels)}
@@ -725,20 +578,16 @@ def render_dependency_free_pie_chart(df_cat):
             </div>
         </div>
         <style>
-            .pie-card {{ font-family: "Segoe UI", Arial, sans-serif; padding: 12px 14px 8px 14px; width: 100%; box-sizing: border-box; }}
+            .pie-card {{ font-family: "Segoe UI", Arial, sans-serif; padding: 12px; width: 100%; box-sizing: border-box; }}
             .chart-title {{ font-size: 22px; font-weight: 650; text-align: center; margin-bottom: 10px; color: #1f2937; }}
-            .pie-layout {{ display: grid; grid-template-columns: minmax(420px, 560px) minmax(360px, 1fr); gap: 28px; align-items: center; justify-content: center; }}
+            .pie-layout {{ display: grid; grid-template-columns: minmax(420px, 560px) minmax(360px, 1fr); gap: 28px; align-items: center; }}
             .pie-svg {{ width: 100%; max-width: 560px; height: auto; display: block; margin: 0 auto; }}
             .percent-label {{ font-size: 20px; font-weight: 650; fill: #111827; }}
             .legend-area {{ font-size: 14px; color: #374151; }}
             .legend-title {{ font-weight: 650; margin-bottom: 10px; color: #1f2937; }}
-            .legend-item {{ display: flex; align-items: center; gap: 9px; margin-bottom: 9px; line-height: 1.3; white-space: normal; }}
+            .legend-item {{ display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }}
             .legend-swatch {{ display: inline-block; width: 14px; height: 14px; border-radius: 2px; flex: 0 0 auto; }}
-        </style>
-        """,
-        height=610,
-        scrolling=False,
-    )
+        </style>""", height=610, scrolling=False)
 
 
 # =========================================================================
@@ -751,65 +600,36 @@ def build_semantic_map():
         "sustituir": "remove and reinstall|replace|remove|reinstall",
         "sustitucion": "remove and reinstall|replace|remove|reinstall",
         "reemplazar": "remove and reinstall|replace|remove|reinstall",
-        "desmontar": "remove",
-        "montar": "reinstall",
+        "desmontar": "remove", "montar": "reinstall",
         "comprobar": "check|inspection|test|diagnostic|measurement",
         "verificar": "check|inspection|test|diagnostic",
         "diagnostico": "check|inspection|test|diagnostic",
         "actualizar": "refresh|update|software|flash",
         "programar": "refresh|update|software|flash|coding|program",
-        "calibrar": "calibrate|calibration",
-        "pulir": "polishing|polish",
-        "pulido": "polishing|polish",
-        "bateria": "battery|storage battery|bms|tecu",
+        "calibrar": "calibrate|calibration", "pulir": "polishing|polish",
+        "pulido": "polishing|polish", "bateria": "battery|storage battery|bms|tecu",
         "centralita": "control unit|control module|ecu|bcm|mcu|vcu|tcu|hcu",
-        "modulo": "control module|module",
-        "camara": "camera|fcm|avm|rear view",
-        "radar": "radar|frm|bsd",
-        "sensor": "sensor|probe|detector",
-        "airbag": "airbag|air bag|abm|srs",
-        "cinturon": "seatbelt|seat belt|belt",
-        "motor": "engine assy|motor|engine",
-        "turbo": "turbocharger|turbo",
-        "radiador": "radiator",
-        "bomba": "pump|water pump|oil pump|fuel pump",
+        "modulo": "control module|module", "camara": "camera|fcm|avm|rear view",
+        "radar": "radar|frm|bsd", "sensor": "sensor|probe|detector",
+        "airbag": "airbag|air bag|abm|srs", "cinturon": "seatbelt|seat belt|belt",
+        "motor": "engine assy|motor|engine", "turbo": "turbocharger|turbo",
+        "radiador": "radiator", "bomba": "pump|water pump|oil pump|fuel pump",
         "dct": "dct|dual clutch transmission",
-        "cambio": "transmission|gearbox|dct|gearshift|remove and reinstall|replace",
-        "caja": "transmission|gearbox",
-        "embrague": "clutch",
-        "palier": "drive shaft|axle shaft|half shaft",
-        "freno": "brake|ipb|epb|abs",
-        "pastilla": "pads|brake pads",
-        "disco": "disc|brake disc",
+        "caja": "transmission|gearbox", "embrague": "clutch",
+        "palier": "drive shaft|axle shaft|half shaft", "freno": "brake|ipb|epb|abs",
+        "pastilla": "pads|brake pads", "disco": "disc|brake disc",
         "amortiguador": "shock absorber|strut|damper",
-        "trapecio": "control arm|suspension arm|wishbone",
-        "direccion": "steering|eps",
-        "paragolpes": "bumper",
-        "faro": "headlamp|headlight",
-        "retrovisor": "mirror|rearview mirror",
-        "puerta": "door",
-        "porton": "tailgate|back door|rear door",
-        "techo": "sunroof|roof|panoramic roof",
-        "cristal": "glass|window",
-        "asiento": "seat",
-        "soporte": "bracket|support|mount|holder",
-        "cuna": "subframe|cradle|bracket|salver|tray",
-        "tapa": "cover|cap|lid",
-        "filtro": "filter",
-        "aceite": "oil|lubricant",
-        "refrigerante": "coolant",
-        "tubo": "pipe|tube|hose",
-        "manguito": "hose",
-        "delantero": "fr",
-        "delantera": "fr",
-        "trasero": "rr",
-        "trasera": "rr",
-        "izquierdo": "lh",
-        "izquierda": "lh",
-        "derecho": "rh",
-        "derecha": "rh",
+        "trapecio": "control arm|suspension arm|wishbone", "direccion": "steering|eps",
+        "paragolpes": "bumper", "faro": "headlamp|headlight",
+        "retrovisor": "mirror|rearview mirror", "puerta": "door",
+        "porton": "tailgate|back door|rear door", "techo": "sunroof|roof|panoramic roof",
+        "cristal": "glass|window", "asiento": "seat", "soporte": "bracket|support|mount|holder",
+        "cuna": "subframe|cradle|bracket|salver|tray", "tapa": "cover|cap|lid",
+        "filtro": "filter", "aceite": "oil|lubricant", "refrigerante": "coolant",
+        "tubo": "pipe|tube|hose", "manguito": "hose", "delantero": "fr", "delantera": "fr",
+        "trasero": "rr", "trasera": "rr", "izquierdo": "lh", "izquierda": "lh",
+        "derecho": "rh", "derecha": "rh",
     }
-
 
 def filter_catalog_for_ai(consulta_usuario, df_contexto):
     consulta_limpia = normalizar_texto(consulta_usuario.strip())
@@ -828,7 +648,6 @@ def filter_catalog_for_ai(consulta_usuario, df_contexto):
             consulta_limpia = consulta_limpia.replace(abrev, mod_real)
 
     lista_palabras_usuario = consulta_limpia.split()
-
     palabras_regex = []
     for esp, eng in mapa_raices.items():
         if esp in consulta_limpia:
@@ -839,8 +658,8 @@ def filter_catalog_for_ai(consulta_usuario, df_contexto):
             palabras_regex.append(palabra)
 
     palabras_regex = list(set(palabras_regex))
-
     df_base = df_contexto.copy()
+
     for col in ["Modelo", "Nombre de la Pieza", "Operación Técnica"]:
         if col in df_base.columns:
             df_base[col] = df_base[col].astype(str).str.lower().str.strip()
@@ -850,10 +669,7 @@ def filter_catalog_for_ai(consulta_usuario, df_contexto):
     elif "jaecoo" in consulta_limpia and "Modelo" in df_base.columns:
         df_base = df_base[df_base["Modelo"].str.contains("jaecoo", na=False)]
 
-    componentes_encontrados = []
-    for esp, eng in mapa_raices.items():
-        if esp in consulta_limpia and esp not in ["cambiar", "sustituir", "cambio", "sustitucion", "reemplazar", "desmontar", "montar"]:
-            componentes_encontrados.extend(eng.split("|"))
+    componentes_encontrados = [eng for esp, engs in mapa_raices.items() if esp in consulta_limpia and esp not in ["cambiar", "sustituir", "cambio", "sustitucion", "reemplazar", "desmontar", "montar"] for eng in engs.split("|")]
 
     if componentes_encontrados:
         regex_comp = "|".join(set(componentes_encontrados))
@@ -865,9 +681,7 @@ def filter_catalog_for_ai(consulta_usuario, df_contexto):
 
     terminos_manuales = ["manual", "adicional", "extra", "tiempo mas", "añadir horas", "universal", "baremo"]
     if any(term in consulta_limpia for term in terminos_manuales) and "Operación Técnica" in df_contexto.columns:
-        df_base = df_contexto[
-            df_contexto["Operación Técnica"].astype(str).str.lower().str.contains("universal", na=False)
-        ]
+        df_base = df_contexto[df_contexto["Operación Técnica"].astype(str).str.lower().str.contains("universal", na=False)]
 
     if palabras_regex and not df_base.empty:
         regex_puntos = "|".join(palabras_regex)
@@ -882,13 +696,9 @@ def filter_catalog_for_ai(consulta_usuario, df_contexto):
     if df_base.empty:
         df_base = df_contexto.head(60)
 
-    wanted_cols = [
-        "Modelo", "Nombre de la Pieza", "Código de Referencia",
-        "Operación Técnica", "Tiempo Estándar (UT/Horas)", "Notas / Exclusiones"
-    ]
+    wanted_cols = ["Modelo", "Nombre de la Pieza", "Código de Referencia", "Operación Técnica", "Tiempo Estándar (UT/Horas)", "Notas / Exclusiones"]
     present_cols = [c for c in wanted_cols if c in df_base.columns]
     return df_base[present_cols].head(100)
-
 
 def buscador_inteligente_excel(consulta_usuario, df_contexto):
     try:
@@ -927,10 +737,7 @@ def buscador_inteligente_excel(consulta_usuario, df_contexto):
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[f"Consulta del operario de taller: '{consulta_usuario}'"],
-            config=types.GenerateContentConfig(
-                system_instruction=prompt_sistema,
-                temperature=0.1
-            )
+            config=types.GenerateContentConfig(system_instruction=prompt_sistema, temperature=0.1)
         )
 
         register_gemini_usage(response)
@@ -980,7 +787,7 @@ def consultar_ia_garantias(descripcion_averia, archivo_imagen=None):
         prompt_usuario = (
             f"Caso reportado por el taller:\n'{descripcion_averia}'\n\n"
             "Genera el dictamen técnico estructurado. No incluyas introducciones. "
-            "Usa frases muy cortas. Sigue estrictamente este orden:\n\n"
+            "Usa frases muy cortas. Sigue strictly este orden:\n\n"
             "**📢 VEREDICTO INMEDIATO Y DICTAMEN DE COBERTURA**\n"
             "- Indica si el caso se **ACEPTA**, se **RECHAZA** o requiere **PRE-AUTORIZACIÓN**.\n"
             "- Argumenta la decisión según política.\n\n"
@@ -997,12 +804,8 @@ def consultar_ia_garantias(descripcion_averia, archivo_imagen=None):
         contenidos.append(prompt_usuario)
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contenidos,
-            config=types.GenerateContentConfig(
-                system_instruction=prompt_sistema,
-                temperature=0.3
-            )
+            model="gemini-2.5-flash", contents=contenidos,
+            config=types.GenerateContentConfig(system_instruction=prompt_sistema, temperature=0.3)
         )
 
         register_gemini_usage(response)
@@ -1024,8 +827,7 @@ def render_sidebar_and_get_option():
     st.sidebar.markdown("---")
 
     idioma_seleccionado = st.sidebar.selectbox(
-        "🌐 Language / Idioma / 语言:",
-        ["Español", "English", "Chinese (中文)"],
+        "🌐 Language / Idioma / 语言:", ["Español", "English", "Chinese (中文)"],
         index=["Español", "English", "Chinese (中文)"].index(st.session_state.idioma),
         key="selector_idioma_global"
     )
@@ -1035,29 +837,14 @@ def render_sidebar_and_get_option():
     st.sidebar.markdown("---")
     st.sidebar.markdown(txt_local["menu_titulo"])
 
-    opciones = [
-        txt_local["menu_taller"],
-        txt_local["menu_generador"],
-        txt_local["menu_solicitar"],
-        txt_local["menu_consultorio"],
-    ]
-
-    opcion = st.sidebar.radio(
-        txt_local["menu_radio"],
-        opciones,
-        key="menu_navegacion_app"
-    )
+    opciones = [txt_local["menu_taller"], txt_local["menu_generador"], txt_local["menu_solicitar"], txt_local["menu_consultorio"]]
+    opcion = st.sidebar.radio(txt_local["menu_radio"], opciones, key="menu_navegacion_app")
 
     st.sidebar.markdown("---")
     st.sidebar.caption(st.session_state.ultima_consulta_info)
-    st.sidebar.caption(
-        f"Tokens In: {st.session_state.tokens_totales_input} · "
-        f"Out: {st.session_state.tokens_totales_output} · "
-        f"Coste: {st.session_state.dinero_total_gastado:.5f}$"
-    )
+    st.sidebar.caption(f"Tokens In: {st.session_state.tokens_totales_input} · Out: {st.session_state.tokens_totales_output} · Coste: {st.session_state.dinero_total_gastado:.5f}$")
 
     return txt_local, opcion
-
 
 def check_password(txt_local):
     if not st.session_state.authenticated:
@@ -1082,34 +869,24 @@ def load_data_tiempos_v3():
     df.columns = df.columns.astype(str).str.strip()
 
     mapeo_columnas = {
-        "new_productmodel_idname": "Modelo",
-        "new_product_idname": "Nombre de la Pieza",
-        "new_code": "Código de Referencia",
-        "new_name": "Operación Técnica",
-        "new_standardhour": "Tiempo Estándar (UT/Horas)",
-        "new_remark": "Notas / Exclusiones",
-        "Organization": "Mercado / Organización",
-        "statecodename": "Estado",
+        "new_productmodel_idname": "Modelo", "new_product_idname": "Nombre de la Pieza",
+        "new_code": "Código de Referencia", "new_name": "Operación Técnica",
+        "new_standardhour": "Tiempo Estándar (UT/Horas)", "new_remark": "Notas / Exclusiones",
+        "Organization": "Mercado / Organización", "statecodename": "Estado",
     }
 
     cols_existentes = [col for col in mapeo_columnas if col in df.columns]
     df_limpio = df[cols_existentes].copy().rename(columns=mapeo_columnas)
-    df_limpio = df_limpio.replace(to_replace=r"^0x.*$", value="", regex=True)
-    df_limpio = df_limpio.fillna("")
-    df_limpio = df_limpio.replace(["nan", "None", "NaN"], "")
+    df_limpio = df_limpio.replace(to_replace=r"^0x.*$", value="", regex=True).fillna("").replace(["nan", "None", "NaN"], "")
 
-    columnas_finales = [
-        "Modelo", "Nombre de la Pieza", "Código de Referencia",
-        "Operación Técnica", "Tiempo Estándar (UT/Horas)", "Notas / Exclusiones",
-        "Mercado / Organización", "Estado",
-    ]
+    columnas_finales = ["Modelo", "Nombre de la Pieza", "Código de Referencia", "Operación Técnica", "Tiempo Estándar (UT/Horas)", "Notas / Exclusiones", "Mercado / Organización", "Estado"]
     columnas_presentes = [col for col in columnas_finales if col in df_limpio.columns]
     return df_limpio[columnas_presentes].reset_index(drop=True)
-
 
 def render_tiempos_taller(txt_local):
     try:
         data = load_data_tiempos_v3()
+        df_vines_db = load_data_vines()
 
         st.title(txt_local["taller_titulo"])
         st.write(txt_local["taller_sub"])
@@ -1124,10 +901,7 @@ def render_tiempos_taller(txt_local):
             key="campo_consulta_ia_excel"
         )
 
-        st.warning(
-            "⚠️ **RECORDATORIO** Antes de tramitar cualquier reclamación, verifique obligatoriamente "
-            "que **la pieza a reclamar coincide con el pedido exacto realizado a Recambios** para esta reparación."
-        )
+        st.warning("⚠️ **RECORDATORIO** Antes de tramitar cualquier reclamación, verifique obligatoriamente que **la pieza a reclamar coincide con el pedido exacto realizado a Recambios** para esta reparación.")
 
         if st.button("Buscar operación", type="secondary", use_container_width=True):
             if not consulta_rapida.strip():
@@ -1149,18 +923,39 @@ def render_tiempos_taller(txt_local):
                 st.rerun()
 
         st.markdown("---")
-        st.subheader("📊 Catálogo Completo (Filtros Manuales)")
+        st.subheader("📊 Catálogo Completo (Filtros Manuales y Detección por VIN)")
 
-        col1, col2, col3 = st.columns([1, 1.5, 1.5])
+        modelos_raw = [str(m).strip() for m in data["Modelo"].dropna().unique()] if "Modelo" in data.columns else []
+        modelos_filtrados = [m for m in modelos_raw if any(marca in m.upper() for marca in ["OMODA", "JAECOO", "LEPAS"])]
+        modelos_disponibles = [txt_local["todos"]] + sorted(list(set(modelos_filtrados)))
+
+        # Fila de Entrada de VIN y Modelo
+        col_vin, col1, col2, col3 = st.columns([1.5, 1.2, 1.5, 1.5])
+
+        with col_vin:
+            vin_busqueda = st.text_input("🔎 Buscar por VIN (Bastidor):", max_chars=17, placeholder="17 caracteres...").strip().upper()
+
+        if len(vin_busqueda) == 17 and not df_vines_db.empty:
+            coincidencia = df_vines_db[df_vines_db['VIN'] == vin_busqueda]
+            if not coincidencia.empty:
+                modelo_detectado_raw = coincidencia.iloc[0]['Modelo_Excel'].upper()
+                modelo_encontrado = None
+                for mod in modelos_disponibles:
+                    if mod != txt_local["todos"] and (mod.upper() in modelo_detectado_raw or modelo_detectado_raw in mod.upper()):
+                        modelo_encontrado = mod
+                        break
+                if modelo_encontrado:
+                    st.session_state.filtro_modelo_taller = modelo_encontrado
+                    st.toast(f"✅ Bastidor VIN detectado: {modelo_encontrado}", icon="🚘")
+                else:
+                    st.toast(f"⚠️ VIN registrado ({modelo_detectado_raw}), sin catálogo exacto.", icon="ℹ️")
+            else:
+                st.toast("❌ Bastidor VIN no encontrado en la base de datos.", icon="⚠️")
 
         with col1:
-            modelos_raw = [str(m).strip() for m in data["Modelo"].dropna().unique()] if "Modelo" in data.columns else []
-            modelos_filtrados = [
-                m for m in modelos_raw
-                if any(marca in m.upper() for marca in ["OMODA", "JAECOO", "LEPAS"])
-            ]
-            modelos_disponibles = [txt_local["todos"]] + sorted(list(set(modelos_filtrados)))
-            modelo_seleccionado = st.selectbox(txt_local["f_modelo"], modelos_disponibles)
+            idx_modelo = modelos_disponibles.index(st.session_state.filtro_modelo_taller) if st.session_state.filtro_modelo_taller in modelos_disponibles else 0
+            modelo_seleccionado = st.selectbox(txt_local["f_modelo"], modelos_disponibles, index=idx_modelo, key="sb_modelo_taller")
+            st.session_state.filtro_modelo_taller = modelo_seleccionado
 
         with col2:
             buscar_pieza = st.text_input(txt_local["f_pieza"], "").strip()
@@ -1172,27 +967,15 @@ def render_tiempos_taller(txt_local):
 
         with col_m:
             if "Mercado / Organización" in data.columns:
-                mercados_disponibles = [txt_local["todos"]] + [
-                    str(m).strip()
-                    for m in data["Mercado / Organización"].unique()
-                    if str(m).strip() != ""
-                ]
-                indice_defecto = 0
-                for idx, mercado in enumerate(mercados_disponibles):
-                    if "spain" in mercado.lower() or "oj spain" in mercado.lower():
-                        indice_defecto = idx
-                        break
+                mercados_disponibles = [txt_local["todos"]] + [str(m).strip() for m in data["Mercado / Organización"].unique() if str(m).strip() != ""]
+                indice_defecto = next((idx for idx, m in enumerate(mercados_disponibles) if "spain" in m.lower() or "oj spain" in m.lower()), 0)
                 mercado_seleccionado = st.selectbox(txt_local["f_mercado_taller"], mercados_disponibles, index=indice_defecto)
             else:
                 mercado_seleccionado = txt_local["todos"]
 
         with col_e:
             if "Estado" in data.columns:
-                estados_disponibles = [txt_local["todos"]] + [
-                    str(e).strip()
-                    for e in data["Estado"].unique()
-                    if str(e).strip() != ""
-                ]
+                estados_disponibles = [txt_local["todos"]] + [str(e).strip() for e in data["Estado"].unique() if str(e).strip() != ""]
                 indice_est_defecto = estados_disponibles.index("Active") if "Active" in estados_disponibles else 0
                 estado_seleccionado = st.selectbox(txt_local["f_estado_taller"], estados_disponibles, index=indice_est_defecto)
             else:
@@ -1228,44 +1011,14 @@ def render_tiempos_taller(txt_local):
         st.error(txt_local["err_taller"].format(exc))
 
 
-
-
-def copy_to_system_clipboard(text):
-    """
-    Copia automática desactivada en Streamlit.
-
-    En una app web, Python corre en el servidor y no debe intentar acceder al
-    portapapeles del usuario. La copia real se hace con el botón de navegador
-    basado en navigator.clipboard dentro de render_browser_copy_button().
-    """
-    return False, (
-        "La copia automática desde Python está desactivada. "
-        "Usa el botón de navegador 'Copiar comentario al portapapeles'."
-    )
-
 def render_browser_copy_button(text, button_text="📋 Copiar al portapapeles", key="copy_button"):
-    """
-    Botón real de copia en navegador para Streamlit.
-
-    Usa navigator.clipboard.writeText. Funciona especialmente bien en localhost
-    y en conexiones HTTPS. No guarda logs: solo copia el texto visible.
-    """
     safe_text = json.dumps(text or "")
     safe_button_text = json.dumps(button_text)
     safe_key = re.sub(r"[^a-zA-Z0-9_]", "_", str(key))
 
-    components.html(
-        f"""
+    components.html(f"""
         <div style="display:flex; align-items:center; gap:10px; margin: 2px 0 8px 0;">
-            <button id="btn_{safe_key}" type="button" style="
-                background-color:#f0f2f6;
-                border:1px solid #d0d3da;
-                border-radius:6px;
-                padding:8px 14px;
-                cursor:pointer;
-                font-family:Arial, sans-serif;
-                font-size:14px;
-            "></button>
+            <button id="btn_{safe_key}" type="button" style="background-color:#f0f2f6; border:1px solid #d0d3da; border-radius:6px; padding:8px 14px; cursor:pointer; font-family:Arial, sans-serif; font-size:14px;"></button>
             <span id="status_{safe_key}" style="font-family:Arial, sans-serif; font-size:13px; color:#2e7d32;"></span>
         </div>
         <script>
@@ -1288,36 +1041,17 @@ def render_browser_copy_button(text, button_text="📋 Copiar al portapapeles", 
                     status_{safe_key}.innerText = "No se pudo copiar. Selecciona el texto manualmente.";
                 }}
             }};
-        </script>
-        """,
-        height=52,
-    )
-
-
+        </script>""", height=52)
 
 def render_keyboard_shortcuts():
-    """
-    Atajos de teclado para la pantalla de estadísticas de garantías devueltas.
-
-    Importante: en Streamlit Cloud/Python no se puede copiar al portapapeles
-    del usuario desde el servidor. Por eso los atajos copian el texto desde el
-    navegador con navigator.clipboard durante el propio evento de teclado y,
-    después, hacen click en el botón de guardado correspondiente.
-    """
-    components.html(
-        """
+    components.html("""
         <script>
         (function () {
             const parentWindow = window.parent;
             const parentDocument = parentWindow.document;
 
-            // Reinstalamos el listener en cada rerun para mantener la última versión.
             if (parentWindow.__ojWarrantyKeyboardShortcutsHandler) {
-                parentDocument.removeEventListener(
-                    'keydown',
-                    parentWindow.__ojWarrantyKeyboardShortcutsHandler,
-                    true
-                );
+                parentDocument.removeEventListener('keydown', parentWindow.__ojWarrantyKeyboardShortcutsHandler, true);
             }
 
             function showShortcutStatus(message, isError=false) {
@@ -1326,13 +1060,9 @@ def render_keyboard_shortcuts():
                     box = parentDocument.createElement('div');
                     box.id = 'oj_shortcut_status_box';
                     box.style.position = 'fixed';
-                    box.style.right = '22px';
-                    box.style.bottom = '22px';
-                    box.style.zIndex = '999999';
-                    box.style.padding = '10px 14px';
-                    box.style.borderRadius = '8px';
-                    box.style.fontFamily = 'Arial, sans-serif';
-                    box.style.fontSize = '13px';
+                    box.style.right = '22px'; box.style.bottom = '22px'; box.style.zIndex = '999999';
+                    box.style.padding = '10px 14px'; box.style.borderRadius = '8px';
+                    box.style.fontFamily = 'Arial, sans-serif'; box.style.fontSize = '13px';
                     box.style.boxShadow = '0 2px 10px rgba(0,0,0,0.18)';
                     parentDocument.body.appendChild(box);
                 }
@@ -1342,39 +1072,28 @@ def render_keyboard_shortcuts():
                 box.innerText = message;
                 window.clearTimeout(parentWindow.__ojShortcutStatusTimeout);
                 parentWindow.__ojShortcutStatusTimeout = window.setTimeout(function () {
-                    if (box && box.parentNode) {
-                        box.parentNode.removeChild(box);
-                    }
+                    if (box && box.parentNode) box.parentNode.removeChild(box);
                 }, 2600);
             }
 
             function buttonByText(text) {
                 const buttons = Array.from(parentDocument.querySelectorAll('button'));
-                return buttons.find(function (button) {
-                    return (button.innerText || '').includes(text);
-                });
+                return buttons.find(button => (button.innerText || '').includes(text));
             }
 
             function clickButton(text) {
                 const button = buttonByText(text);
-                if (button) {
-                    button.click();
-                    return true;
-                }
+                if (button) { button.click(); return true; }
                 showShortcutStatus('No encuentro el botón: ' + text, true);
                 return false;
             }
 
             function focusInputByPlaceholder(partialPlaceholder) {
                 const inputs = Array.from(parentDocument.querySelectorAll('input, textarea'));
-                const input = inputs.find(function (element) {
-                    return ((element.placeholder || '').includes(partialPlaceholder));
-                });
+                const input = inputs.find(element => ((element.placeholder || '').includes(partialPlaceholder)));
                 if (input) {
                     input.focus();
-                    if (typeof input.select === 'function') {
-                        input.select();
-                    }
+                    if (typeof input.select === 'function') input.select();
                     return true;
                 }
                 return false;
@@ -1382,111 +1101,37 @@ def render_keyboard_shortcuts():
 
             function getCommentTextarea() {
                 const textareas = Array.from(parentDocument.querySelectorAll('textarea'));
-
-                // En esta pantalla el comentario editable suele ser el textarea con más contenido.
-                // Así evitamos depender de clases internas de Streamlit, que cambian mucho.
-                const candidates = textareas
-                    .filter(function (textarea) {
-                        const value = textarea.value || '';
-                        const placeholder = textarea.placeholder || '';
-                        const aria = textarea.getAttribute('aria-label') || '';
-                        return (
-                            value.trim().length > 0 ||
-                            placeholder.includes('Revisa') ||
-                            aria.includes('Revisa') ||
-                            aria.includes('modifica')
-                        );
-                    })
-                    .sort(function (a, b) {
-                        return (b.value || '').length - (a.value || '').length;
-                    });
-
+                const candidates = textareas.filter(textarea => {
+                    const value = textarea.value || '';
+                    const placeholder = textarea.placeholder || '';
+                    const aria = textarea.getAttribute('aria-label') || '';
+                    return (value.trim().length > 0 || placeholder.includes('Revisa') || aria.includes('Revisa') || aria.includes('modifica'));
+                }).sort((a, b) => (b.value || '').length - (a.value || '').length);
                 return candidates.length ? candidates[0] : null;
             }
 
             async function copyCurrentCommentFromBrowser() {
                 const textarea = getCommentTextarea();
                 const text = textarea ? (textarea.value || '').trim() : '';
-
                 if (!text) {
                     showShortcutStatus('No hay comentario para copiar.', true);
                     return false;
                 }
-
-                // 1) Intento moderno. Usamos el navigator de la ventana padre porque
-                // Streamlit mete components.html dentro de un iframe y, según navegador
-                // o despliegue, el iframe puede no tener permiso de clipboard.
                 try {
                     if (parentWindow.navigator && parentWindow.navigator.clipboard) {
                         await parentWindow.navigator.clipboard.writeText(text);
                         showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
                         return true;
                     }
-                } catch (err) {
-                    // Pasamos al fallback clásico.
-                }
-
-                // 2) Fallback clásico: seleccionar temporalmente el textarea real de
-                // Streamlit y ejecutar copy desde el documento padre. Suele funcionar
-                // mejor con atajos de teclado porque el evento viene de una acción del usuario.
-                try {
-                    textarea.focus();
-                    textarea.select();
-                    textarea.setSelectionRange(0, textarea.value.length);
-
-                    const copied = parentDocument.execCommand('copy');
-
-                    // Quitamos la selección para no dejar la pantalla rara.
-                    if (parentWindow.getSelection) {
-                        const selection = parentWindow.getSelection();
-                        if (selection && selection.removeAllRanges) {
-                            selection.removeAllRanges();
-                        }
-                    }
-
-                    if (copied) {
-                        showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
-                        return true;
-                    }
-                } catch (err) {
-                    // Pasamos al fallback invisible.
-                }
-
-                // 3) Último fallback: crear un textarea invisible en el documento padre,
-                // copiarlo y borrarlo.
-                try {
-                    const helper = parentDocument.createElement('textarea');
-                    helper.value = text;
-                    helper.setAttribute('readonly', '');
-                    helper.style.position = 'fixed';
-                    helper.style.left = '-9999px';
-                    helper.style.top = '-9999px';
-                    parentDocument.body.appendChild(helper);
-                    helper.focus();
-                    helper.select();
-                    const copied = parentDocument.execCommand('copy');
-                    parentDocument.body.removeChild(helper);
-
-                    if (copied) {
-                        showShortcutStatus('Comentario copiado. Pega con Ctrl + V.');
-                        return true;
-                    }
-                } catch (err) {
-                    // Nada más que probar.
-                }
-
+                } catch (err) {}
                 showShortcutStatus('No se pudo copiar automáticamente. Usa el botón o selecciona el texto.', true);
                 return false;
             }
 
             async function copyThenClick(buttonText) {
                 const copied = await copyCurrentCommentFromBrowser();
-                if (!copied) {
-                    return;
-                }
-                window.setTimeout(function () {
-                    clickButton(buttonText);
-                }, 80);
+                if (!copied) return;
+                window.setTimeout(() => clickButton(buttonText), 80);
             }
 
             parentWindow.__ojWarrantyKeyboardShortcutsHandler = function (event) {
@@ -1496,61 +1141,30 @@ def render_keyboard_shortcuts():
                 const isTypingField = tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable);
                 const ctrlOrCmd = event.ctrlKey || event.metaKey;
 
-                // Ctrl/Cmd + Shift + Enter: copiar desde navegador, guardar y limpiar.
-                // Funciona también dentro del comentario editable.
                 if (ctrlOrCmd && event.shiftKey && event.key === 'Enter') {
-                    event.preventDefault();
-                    copyThenClick('Guardar y limpiar');
-                    return;
+                    event.preventDefault(); copyThenClick('Guardar y limpiar'); return;
                 }
-
-                // Ctrl/Cmd + Enter: copiar desde navegador y guardar.
-                // Funciona también dentro del comentario editable.
                 if (ctrlOrCmd && !event.shiftKey && event.key === 'Enter') {
-                    event.preventDefault();
-                    copyThenClick('Guardar');
-                    return;
+                    event.preventDefault(); copyThenClick('Guardar'); return;
                 }
-
-                // Enter normal: copiar, guardar y limpiar solo si NO estás escribiendo en un campo.
                 if (!ctrlOrCmd && !event.shiftKey && !event.altKey && event.key === 'Enter' && !isTypingField) {
-                    event.preventDefault();
-                    copyThenClick('Guardar y limpiar');
-                    return;
+                    event.preventDefault(); copyThenClick('Guardar y limpiar'); return;
                 }
-
-                // Alt + N: foco rápido en número de reclamación/garantía.
                 if (event.altKey && key === 'n') {
-                    event.preventDefault();
-                    focusInputByPlaceholder('CO202608310001');
-                    return;
+                    event.preventDefault(); focusInputByPlaceholder('CO202608310001'); return;
                 }
-
-                // Alt + B: foco rápido en buscador.
                 if (event.altKey && key === 'b') {
-                    event.preventDefault();
-                    focusInputByPlaceholder('Filtrar por ID');
-                    return;
+                    event.preventDefault(); focusInputByPlaceholder('Filtrar por ID'); return;
                 }
-
-                // Alt + L: limpiar selección.
                 if (event.altKey && key === 'l') {
-                    event.preventDefault();
-                    clickButton('Limpiar selección');
-                    return;
+                    event.preventDefault(); clickButton('Limpiar selección'); return;
                 }
             };
 
-            parentDocument.addEventListener(
-                'keydown',
-                parentWindow.__ojWarrantyKeyboardShortcutsHandler,
-                true
-            );
+            parentDocument.addEventListener('keydown', parentWindow.__ojWarrantyKeyboardShortcutsHandler, true);
         })();
-        </script>
-        """,
-        height=0,
-    )
+        </script>""", height=0)
+
 
 # =========================================================================
 # PANTALLA 2 - GENERADOR DE COMENTARIOS
@@ -1560,15 +1174,8 @@ def render_generador_comentarios():
 
     st.title("📊 Estadísticas de garantías devueltas")
     st.caption("Registra los motivos de garantías devueltas, revisa el comentario, cópialo al portapapeles y guárdalo en los CSV.")
-    st.caption(
-        "Atajos: Enter = copiar + guardar y limpiar cuando no estás escribiendo · "
-        "Ctrl + Enter = copiar + guardar · Ctrl + Shift + Enter = copiar + guardar y limpiar · "
-        "Alt + N = nº reclamación · Alt + B = buscador · Alt + L = limpiar selección"
-    )
+    st.caption("Atajos: Enter = copiar + guardar y limpiar · Ctrl + Enter = copiar + guardar · Ctrl + Shift + Enter = copiar + guardar y limpiar")
 
-    # Streamlit mantiene estado propio para cada checkbox y para el text_area.
-    # Las limpiezas deben aplicarse ANTES de pintar esos widgets, si no,
-    # la selección visual puede quedarse marcada aunque borremos selected_keys.
     if st.session_state.get("pending_clear_selection", False):
         st.session_state.selected_keys = []
         st.session_state.previous_selected_keys = []
@@ -1582,11 +1189,7 @@ def render_generador_comentarios():
 
     if st.session_state.last_saved_comment:
         st.success("✅ Último comentario guardado en CSVs. Cópialo con el botón de navegador de abajo.")
-        render_browser_copy_button(
-            st.session_state.last_saved_comment,
-            button_text="📋 Copiar último comentario guardado",
-            key="copy_last_saved_comment"
-        )
+        render_browser_copy_button(st.session_state.last_saved_comment, button_text="📋 Copiar último comentario guardado", key="copy_last_saved_comment")
         with st.expander("Ver último comentario guardado", expanded=False):
             st.code(st.session_state.last_saved_comment, language=None)
         if st.button("Ocultar último comentario guardado", key="hide_last_saved_comment"):
@@ -1598,29 +1201,15 @@ def render_generador_comentarios():
 
     col_c1, col_c2, col_c3 = st.columns([1.5, 2, 1.2])
     with col_c1:
-        st.session_state.claim_val = st.text_input(
-            "Nº reclamación / garantía:",
-            value=st.session_state.claim_val,
-            placeholder="Ej: CO202608310001",
-            help="Rellénalo antes de guardar si quieres poder cruzar después el registro con el DMS."
-        ).strip().upper()
-
+        st.session_state.claim_val = st.text_input("Nº reclamación / garantía:", value=st.session_state.claim_val, placeholder="Ej: CO202608310001").strip().upper()
     with col_c2:
-        search_query = st.text_input(
-            "Buscar:",
-            placeholder="Filtrar por ID, motivo, categoría o texto..."
-        ).strip()
-
+        search_query = st.text_input("Buscar:", placeholder="Filtrar por ID, motivo, categoría o texto...").strip()
     with col_c3:
         highlight_top = st.checkbox("Resaltar TOP en lista", value=False)
         warn_missing_claim = st.checkbox("Avisar si falta claim", value=True)
 
-    # Disclaimer fijo: la claim es opcional, pero es la única clave sólida para cruzar con DMS.
     if not st.session_state.claim_val:
-        st.warning(
-            "⚠️ **Antes de guardar:** revisa si quieres informar el **número de reclamación/garantía**. "
-            "Si lo dejas vacío, el registro se guardará como `NO INFORMADO` y luego no podrás cruzarlo de forma fiable con el DMS."
-        )
+        st.warning("⚠️ **Antes de guardar:** revisa si quieres informar el **número de reclamación/garantía**.")
     else:
         st.success(f"✅ Reclamación informada para el registro: `{st.session_state.claim_val}`")
 
@@ -1631,12 +1220,7 @@ def render_generador_comentarios():
 
     for idx, category in enumerate(CATEGORY_ORDER):
         target_col = grid_cols[idx % 3]
-        cat_items = []
-        for key, item in COMMENTS.items():
-            if item["category"] == category:
-                searchable = normalize_text(f"{key} {item['category']} {item['label']} {item['text']}")
-                if not query_norm or query_norm in searchable:
-                    cat_items.append((key, item))
+        cat_items = [(key, item) for key, item in COMMENTS.items() if item["category"] == category and (not query_norm or query_norm in normalize_text(f"{key} {item['category']} {item['label']} {item['text']}"))]
 
         if cat_items:
             with target_col:
@@ -1644,50 +1228,32 @@ def render_generador_comentarios():
                 for key, item in cat_items:
                     uses = usage_stats.get(key, 0)
                     rank = rank_map.get(key)
-
-                    usage_text = f"{uses} usos"
-                    if highlight_top and rank is not None:
-                        if rank <= TOP_RED_LIMIT:
-                            usage_text += f" 🔥 TOP {rank}"
-                        elif rank <= TOP_AMBER_LIMIT:
-                            usage_text += f" ⚠️ TOP {rank}"
-
+                    usage_text = f"{uses} usos" + (f" 🔥 TOP {rank}" if highlight_top and rank and rank <= TOP_RED_LIMIT else (f" ⚠️ TOP {rank}" if highlight_top and rank and rank <= TOP_AMBER_LIMIT else ""))
+                    
                     label_text = f"**{item['label']}**  \n:gray[({usage_text})]"
                     is_checked = key in st.session_state.selected_keys
 
-                    checked = st.checkbox(label_text, value=is_checked, key=f"chk_{key}")
-                    if checked and key not in st.session_state.selected_keys:
-                        st.session_state.selected_keys.append(key)
-                    elif not checked and key in st.session_state.selected_keys:
-                        st.session_state.selected_keys.remove(key)
+                    if st.checkbox(label_text, value=is_checked, key=f"chk_{key}"):
+                        if key not in st.session_state.selected_keys:
+                            st.session_state.selected_keys.append(key)
+                    else:
+                        if key in st.session_state.selected_keys:
+                            st.session_state.selected_keys.remove(key)
 
     st.markdown("---")
 
     ordered_keys = [key for key in COMMENTS if key in st.session_state.selected_keys]
     base_comment = " ".join(COMMENTS[key]["text"] for key in ordered_keys).strip()
 
-    # Streamlit mantiene el valor de un text_area con key aunque cambie el parámetro value.
-    # Por eso sincronizamos manualmente el comentario editable cuando cambia la selección
-    # de motivos, replicando el comportamiento de la app Tkinter original.
     previous_ordered_keys = [key for key in COMMENTS if key in st.session_state.previous_selected_keys]
-    selection_changed = ordered_keys != previous_ordered_keys
-
-    if selection_changed:
+    if ordered_keys != previous_ordered_keys:
         st.session_state.final_comment_area = base_comment
         st.session_state.previous_selected_keys = ordered_keys.copy()
 
     st.subheader("Comentario generado editable:")
-    final_comment = st.text_area(
-        "Revisa o modifica el texto antes de copiar:",
-        height=110,
-        key="final_comment_area"
-    ).strip()
+    final_comment = st.text_area("Revisa o modifica el texto antes de copiar:", height=110, key="final_comment_area").strip()
 
-    render_browser_copy_button(
-        final_comment,
-        button_text="📋 Copiar comentario al portapapeles",
-        key="copy_current_comment"
-    )
+    render_browser_copy_button(final_comment, button_text="📋 Copiar comentario al portapapeles", key="copy_current_comment")
 
     def procesar_copia():
         if not final_comment.strip():
@@ -1696,34 +1262,23 @@ def render_generador_comentarios():
 
         if warn_missing_claim and not st.session_state.claim_val and not st.session_state.confirm_missing_claim:
             st.session_state.confirm_missing_claim = True
-            st.error(
-                "🚨 **No has informado el número de reclamación/garantía.** "
-                "Si guardas así, se registrará como `NO INFORMADO` y no servirá para cruce claim a claim con DMS. "
-                "Rellena el campo de arriba o vuelve a pulsar el botón de guardar para confirmar que quieres guardarlo sin claim."
-            )
+            st.error("🚨 **No has informado el número de reclamación/garantía.** Rellena el campo o vuelve a pulsar guardar para confirmar sin claim.")
             return False
 
         log_generated_comment(ordered_keys, final_comment, base_comment, st.session_state.claim_val)
-
         if ordered_keys:
             update_usage_stats(ordered_keys)
-
         st.session_state.confirm_missing_claim = False
         return True
 
     col_b1, col_b2, col_b3, col_b4 = st.columns([1.35, 1.45, 1.2, 1.6])
-
     with col_b1:
         if st.button("💾 Guardar", type="primary", use_container_width=True):
             if procesar_copia():
                 st.session_state.last_saved_comment = final_comment
                 st.code(final_comment, language=None)
-                st.success("✅ Comentario registrado en CSVs. Cópialo con el botón de navegador.")
-                render_browser_copy_button(
-                    final_comment,
-                    button_text="📋 Copiar ahora",
-                    key="copy_after_save"
-                )
+                st.success("✅ Comentario registrado en CSVs.")
+                render_browser_copy_button(final_comment, button_text="📋 Copiar ahora", key="copy_after_save")
 
     with col_b2:
         if st.button("🧹 Guardar y limpiar", use_container_width=True):
@@ -1752,27 +1307,16 @@ def render_generador_comentarios():
         df_cat = get_category_stats_dataframe(usage_stats)
 
         if df_stats.empty:
-            st.info("Aún no hay usos registrados. Cuando copies comentarios, aparecerán aquí.")
+            st.info("Aún no hay usos registrados.")
             return
 
-        total_uses = int(df_stats["Usos"].sum())
-        st.write(
-            f"**Total de usos registrados:** {total_uses} · "
-            f"**Motivos usados:** {len(df_stats)} · "
-            f"**Categorías usadas:** {len(df_cat)} · "
-            "No se incluyen motivos con 0 usos. El ranking respeta empates."
-        )
-
+        st.write(f"**Total de usos registrados:** {int(df_stats['Usos'].sum())} · **Motivos usados:** {len(df_stats)} · **Categorías usadas:** {len(df_cat)}")
         tab_tbl, tab_bars, tab_pie = st.tabs(["Tabla de Ranking", "Barras por Motivo", "Pie por Categoría"])
 
         with tab_tbl:
             display_df = df_stats.copy()
             display_df["%"] = display_df["%"].map(lambda x: f"{x:.1f}%")
-            st.dataframe(
-                display_df[["TOP", "Usos", "%", "Categoría", "Motivo"]],
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(display_df[["TOP", "Usos", "%", "Categoría", "Motivo"]], use_container_width=True, hide_index=True)
 
         with tab_bars:
             render_dependency_free_bar_chart(df_stats)
@@ -1790,49 +1334,62 @@ def render_solicitar_operacion(txt_local):
     st.markdown("---")
 
     MAPEO_MODELOS = {
-        "OMODA 5 (Gasolina)": "T19C",
-        "OMODA 5 HEV (Híbrido)": "T19C HEV",
-        "OMODA 5 EV (Eléctrico)": "T19C EV",
-        "OMODA 7 PHEV": "T1GC PHEV",
-        "OMODA 9 PHEV": "T22 PHEV",
-        "JAECOO 5 (Gasolina)": "T13J",
-        "JAECOO 5 HEV": "T13J HEV",
-        "JAECOO 5 BEV": "T13J BEV",
-        "JAECOO 7 (Gasolina)": "T1EJ",
-        "JAECOO 7 HEV": "T1EJ HEV",
-        "JAECOO 7 PHEV": "T1EJ PHEV",
-        "JAECOO 8 PHEV": "T26 PHEV",
+        "OMODA 5 (Gasolina)": "T19C", "OMODA 5 HEV (Híbrido)": "T19C HEV", "OMODA 5 EV (Eléctrico)": "T19C EV",
+        "OMODA 7 PHEV": "T1GC PHEV", "OMODA 9 PHEV": "T22 PHEV", "JAECOO 5 (Gasolina)": "T13J",
+        "JAECOO 5 HEV": "T13J HEV", "JAECOO 5 BEV": "T13J BEV", "JAECOO 7 (Gasolina)": "T1EJ",
+        "JAECOO 7 HEV": "T1EJ HEV", "JAECOO 7 PHEV": "T1EJ PHEV", "JAECOO 8 PHEV": "T26 PHEV",
         "LEPAS L8 PHEV": "T1G PHEV",
     }
+
+    df_vines_db = load_data_vines()
+
+    # Campo VIN fuera del form para actualizar desplegables al instante
+    vin = st.text_input(
+        txt_local["form_vin"], 
+        max_chars=17, 
+        placeholder=txt_local["form_vin_holder"],
+        help="Al escribir los 17 caracteres, se detectará la marca y modelo automáticamente."
+    ).strip().upper()
+
+    # Lógica de detección automática en VINes.xlsb
+    if len(vin) == 17 and not df_vines_db.empty:
+        coincidencia = df_vines_db[df_vines_db['VIN'] == vin]
+        if not coincidencia.empty:
+            modelo_detectado_raw = coincidencia.iloc[0]['Modelo_Excel'].upper()
+            for mod_comercial in MAPEO_MODELOS.keys():
+                if mod_comercial.upper() in modelo_detectado_raw or modelo_detectado_raw in mod_comercial.upper():
+                    if mod_comercial.startswith("OMODA"):
+                        st.session_state.solicitar_marca = "OMODA"
+                    elif mod_comercial.startswith("JAECOO"):
+                        st.session_state.solicitar_marca = "JAECOO"
+                    elif mod_comercial.startswith("LEPAS"):
+                        st.session_state.solicitar_marca = "LEPAS"
+                    st.session_state.solicitar_modelo = mod_comercial
+                    st.toast(f"✅ Bastidor detectado: {mod_comercial}", icon="🚘")
+                    break
 
     st.subheader(txt_local["form_sub"])
 
     col1, col2 = st.columns(2)
     with col1:
-        marca = st.selectbox(txt_local["form_marca"], ["OMODA", "JAECOO", "LEPAS"])
+        marcas = ["OMODA", "JAECOO", "LEPAS"]
+        idx_m = marcas.index(st.session_state.solicitar_marca) if st.session_state.solicitar_marca in marcas else 0
+        marca = st.selectbox(txt_local["form_marca"], marcas, index=idx_m)
+        st.session_state.solicitar_marca = marca
+
         modelos_filtrados = [mod for mod in MAPEO_MODELOS if mod.upper().startswith(marca.upper())]
-        modelo_comercial = st.selectbox(txt_local["form_modelo"], modelos_filtrados)
+        idx_mod = modelos_filtrados.index(st.session_state.solicitar_modelo) if st.session_state.solicitar_modelo in modelos_filtrados else 0
+        modelo_comercial = st.selectbox(txt_local["form_modelo"], modelos_filtrados, index=idx_mod)
+        st.session_state.solicitar_modelo = modelo_comercial
+
     with col2:
         codigo_producto_auto = MAPEO_MODELOS[modelo_comercial]
         st.text_input(txt_local["form_hq_code"], value=codigo_producto_auto, disabled=True)
 
     with st.form("hq_operation_form", clear_on_submit=True):
-        numero_garantia = st.text_input(
-            "Nº de Garantía:",
-            placeholder="Ej: CO202607290001",
-            help="Formato requerido: COYYYYMMDDXXXX"
-        ).strip().upper()
-
-        c1, c2 = st.columns(2)
-        with c1:
-            vin = st.text_input(txt_local["form_vin"], max_chars=17, placeholder=txt_local["form_vin_holder"]).strip().upper()
-        with c2:
-            referencia = st.text_input(txt_local["form_ref"], placeholder=txt_local["form_ref_holder"]).strip().upper()
-
-        operacion_solicitada = st.text_area(
-            txt_local["form_op"],
-            placeholder=txt_local["form_op_holder"]
-        ).strip()
+        numero_garantia = st.text_input("Nº de Garantía:", placeholder="Ej: CO202607290001", help="Formato: COYYYYMMDDXXXX").strip().upper()
+        referencia = st.text_input(txt_local["form_ref"], placeholder=txt_local["form_ref_holder"]).strip().upper()
+        operacion_solicitada = st.text_area(txt_local["form_op"], placeholder=txt_local["form_op_holder"]).strip()
 
         boton_enviar = st.form_submit_button(txt_local["form_btn"])
 
@@ -1859,10 +1416,8 @@ def render_solicitar_operacion(txt_local):
                     "Submitted on": ahora.strftime("%Y-%m-%d %H:%M:%S"),
                     "Respondents": f"Garantía: {numero_garantia}",
                     "Fecha del día": ahora.strftime("%Y-%m-%d"),
-                    "Marca del vehículo": marca,
-                    "INTRODUCIR MODELO": modelo_comercial,
-                    "INTRODUCIR VIN": vin,
-                    "Mercado": "Spain OJ",
+                    "Marca del vehículo": marca, "INTRODUCIR MODELO": modelo_comercial,
+                    "INTRODUCIR VIN": vin, "Mercado": "Spain OJ",
                     "CÓDIGO DE PRODUCTO": codigo_producto_auto,
                     "REFERENCIA DE PIEZA": referencia if referencia else "NaN",
                     "OPERACIÓN QUE SE SOLICITA AÑADIR": operacion_solicitada,
@@ -1870,7 +1425,6 @@ def render_solicitar_operacion(txt_local):
                 }
 
                 subida_exitosa = False
-
                 try:
                     from streamlit_gsheets import GSheetsConnection
                     conn = st.connection("gsheets", type=GSheetsConnection)
